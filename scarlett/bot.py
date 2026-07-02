@@ -5,6 +5,7 @@ from discord.ext import commands
 
 from .config import Settings
 from .db import Database
+from .llm import LLM
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class Scarlett(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.settings = settings
         self.db: Database | None = None
+        self.llm = LLM(settings)
 
     async def setup_hook(self) -> None:
         self.db = await Database.open(self.settings.db_path)

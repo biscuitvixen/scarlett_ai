@@ -8,6 +8,8 @@ services:
     volumes:
       # sqlite db (user timezones etc) survives container recreates
       - bot-data:/app/data
+      # mounted over the baked-in copy so personality edits apply live
+      - ./personality.md:/app/personality.md:ro
     depends_on:
       - lavalink
 
@@ -33,9 +35,17 @@ services:
   # Check NGC for the current tag before first use.
   vllm:
     profiles: ["llm"]
-    image: nvcr.io/nvidia/vllm:25.06-py3
+    build:
+      context: .
+      dockerfile: vllm.Dockerfile
     restart: unless-stopped
-    command: vllm serve ${LLM_MODEL} --host 0.0.0.0 --port 8000
+    # Memory on the Spark is unified, the OS and other processes share it
+    # with the GPU, so vllm's default 0.92 utilization target exceeds what
+    # is actually free and it refuses to start. 0.70 of 128GB still fits a
+    # 32B model plus generous kv cache.
+    command: >
+      vllm serve ${LLM_MODEL} --host 0.0.0.0 --port 8000
+      --gpu-memory-utilization ${GPU_MEM_UTIL:-0.70}
     environment:
       HF_TOKEN: ${HF_TOKEN:-}
     volumes:

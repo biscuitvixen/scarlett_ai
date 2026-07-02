@@ -7,6 +7,7 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY pyproject.toml ./
+COPY personality.md ./
 COPY scarlett ./scarlett
 RUN pip install --no-cache-dir .
 
