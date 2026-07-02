@@ -28,7 +28,7 @@ class Chat(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
-        if message.author.bot or not message.content:
+        if message.author.bot:
             return
         if (
             message.guild is None
@@ -36,34 +36,44 @@ class Chat(commands.Cog):
         ):
             return
 
-        mentioned = self._addressed_to_me(message)
-        if not mentioned and not self._wants_to_interject(message):
+        # a mention always gets a reply, even if the message is just an
+        # attachment with no text
+        mentioned = await self._addressed_to_me(message)
+        if not mentioned and not (
+            message.content and self._wants_to_interject(message)
+        ):
             return
 
         transcript = await self._transcript(message.channel)
+        text = FALLBACK
         try:
             async with message.channel.typing():
                 text = await self.bot.llm.chat_reply(
                     transcript, self.bot.user.display_name
-                )
+                ) or FALLBACK
         except Exception:
             log.exception("llm request failed")
-            if mentioned:
-                await message.reply(FALLBACK, mention_author=False)
-            return
-        if not text:
-            return
 
         if mentioned:
             await message.reply(text[:2000], mention_author=False)
-        else:
+        elif text is not FALLBACK:
             await message.channel.send(text[:2000])
             self.last_interject[message.channel.id] = time.monotonic()
 
-    def _addressed_to_me(self, message: discord.Message) -> bool:
+    async def _addressed_to_me(self, message: discord.Message) -> bool:
         if self.bot.user in message.mentions:
             return True
-        ref = message.reference.resolved if message.reference else None
+        if message.reference is None:
+            return False
+        ref = message.reference.resolved
+        if ref is None and message.reference.message_id:
+            # replied-to message wasn't in the cache
+            try:
+                ref = await message.channel.fetch_message(
+                    message.reference.message_id
+                )
+            except discord.HTTPException:
+                return False
         return isinstance(ref, discord.Message) and ref.author == self.bot.user
 
     def _wants_to_interject(self, message: discord.Message) -> bool:
