@@ -26,10 +26,20 @@ TIME_OF_DAY = re.compile(
     r"""
       \b\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)\b        # 7pm, 7:30 pm
     | \b(?:[01]?\d|2[0-3]):[0-5]\d\b              # 19:30
+    | \bat\s+(?:[01]\d|2[0-3])[0-5]\d\b           # at 1900
+    | \b(?:[01]\d|2[0-3])[0-5]\d\s*(?:hrs?|hours)\b   # 1900hrs
     | \b(?:noon|midday|midnight)\b
     | \bin\s+\d+\s*(?:minutes?|mins?|hours?|hrs?)\b
     """,
     re.IGNORECASE | re.VERBOSE,
+)
+
+# Compact 24h time ("1900") is only trusted with context ("at 1900",
+# "1900hrs"), a bare 4-digit number is usually a year or just a number.
+# dateparser reads "1900" as a year too, so rewrite to 19:00 before parsing.
+COMPACT_24H_AT = re.compile(r"\b(at\s+)([01]\d|2[0-3])([0-5]\d)\b", re.IGNORECASE)
+COMPACT_24H_HRS = re.compile(
+    r"\b([01]\d|2[0-3])([0-5]\d)\s*(?:hrs?|hours)\b", re.IGNORECASE
 )
 
 MAX_MATCHES = 3
@@ -47,6 +57,9 @@ def extract_times(
         return []
     if not TIME_OF_DAY.search(text):
         return []
+
+    text = COMPACT_24H_AT.sub(r"\g<1>\g<2>:\g<3>", text)
+    text = COMPACT_24H_HRS.sub(r"\g<1>:\g<2>", text)
 
     if now is None:
         now = datetime.now(tz)

@@ -36,6 +36,21 @@ def test_relative_minutes():
     assert int(m.when.timestamp()) == int(NOW.timestamp()) + 45 * 60
 
 
+def test_compact_24h_with_at():
+    (m,) = extract_times("movie night friday at 1900?", LONDON, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 3, 19, 0)
+
+
+def test_compact_24h_leading_zero():
+    (m,) = extract_times("briefing at 0730 tomorrow", LONDON, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 2, 7, 30)
+
+
+def test_compact_24h_hrs_suffix():
+    (m,) = extract_times("kickoff 1900hrs saturday", LONDON, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 4, 19, 0)
+
+
 def test_noon_saturday():
     (m,) = extract_times("brunch at noon on saturday", LONDON, NOW)
     assert int(m.when.timestamp()) == unix(2026, 7, 4, 12, 0)
@@ -80,6 +95,8 @@ def test_multiple_capped_and_deduped():
         "we won 19-30",
         "may I ask something",
         "i have 7 apples",
+        "back in 1900 things were different",
+        "the code is 1730",
         "already formatted <t:1751652000:F> here",
     ],
 )
