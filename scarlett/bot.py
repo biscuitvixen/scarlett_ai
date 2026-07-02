@@ -32,12 +32,24 @@ class Scarlett(commands.Bot):
 
         # Guild-scoped sync shows new slash commands immediately.
         # Global sync can take up to an hour, so use GUILD_ID during dev.
-        if self.settings.guild_id:
-            guild = discord.Object(id=self.settings.guild_id)
-            self.tree.copy_global_to(guild=guild)
-            await self.tree.sync(guild=guild)
-        else:
-            await self.tree.sync()
+        try:
+            if self.settings.guild_id:
+                guild = discord.Object(id=self.settings.guild_id)
+                self.tree.copy_global_to(guild=guild)
+                await self.tree.sync(guild=guild)
+            else:
+                await self.tree.sync()
+        except discord.Forbidden:
+            # Usually means the bot was invited without the
+            # applications.commands scope, keep running so chat features
+            # still work and print the fix
+            log.error(
+                "cannot register slash commands in guild %s, reinvite with: "
+                "https://discord.com/oauth2/authorize?client_id=%s"
+                "&scope=bot+applications.commands&permissions=277062455360",
+                self.settings.guild_id,
+                self.application_id,
+            )
 
     async def on_ready(self) -> None:
         log.info("logged in as %s (%s)", self.user, self.user.id)

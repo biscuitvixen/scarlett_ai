@@ -18,7 +18,11 @@ services:
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
-      # Cache downloaded plugin jars so they survive container recreates
+      # Cache downloaded plugin jars so they survive container recreates.
+      # Lavalink runs as uid 322 but docker creates fresh volumes as root,
+      # so on first run on a new machine the plugin download hits
+      # "Permission denied" until:
+      #   docker run --rm -v scarlett_ai_lavalink-plugins:/p alpine chown -R 322:322 /p
       - lavalink-plugins:/opt/Lavalink/plugins
     expose:
       - "2333"
