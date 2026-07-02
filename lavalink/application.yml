@@ -3,18 +3,35 @@ server:
   address: 0.0.0.0
 
 lavalink:
+  plugins:
+    # Lavalink 4 dropped built-in YouTube, it needs the youtube-source
+    # plugin (https://github.com/lavalink-devs/youtube-source). Fetched
+    # from Maven on first boot into /opt/Lavalink/plugins.
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+      repository: "https://maven.lavalink.dev/releases"
   server:
     # Overridden by LAVALINK_SERVER_PASSWORD from the compose file
     password: youshallnotpass
     sources:
-      # Lavalink 4 dropped built-in YouTube, it needs the youtube-source
-      # plugin (https://github.com/lavalink-devs/youtube-source)
+      # YouTube is handled by the plugin below, not this list.
       soundcloud: true
       bandcamp: true
       twitch: true
       vimeo: true
       http: true
       local: false
+
+plugins:
+  youtube:
+    enabled: true
+    # Client identities Lavalink impersonates. When Google breaks one it
+    # falls through to the next, so keep several listed. Reorder or add
+    # new ones if playback starts failing.
+    clients:
+      - MUSIC
+      - WEB
+      - WEBEMBEDDED
+      - TVHTML5EMBEDDED
 
 logging:
   level:
