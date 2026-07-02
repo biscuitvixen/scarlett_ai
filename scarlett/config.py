@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -10,6 +11,12 @@ class Settings(BaseSettings):
 
     discord_token: str
     guild_id: int | None = None
+
+    # a blank line in .env ("GUILD_ID=") should mean unset, not crash
+    @field_validator("guild_id", mode="before")
+    @classmethod
+    def _blank_is_none(cls, v):
+        return None if v == "" else v
 
     llm_base_url: str = "http://vllm:8000/v1"
     llm_model: str = ""
