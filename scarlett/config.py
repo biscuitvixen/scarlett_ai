@@ -17,3 +17,5 @@ class Settings(BaseSettings):
 
     lavalink_url: str = "http://lavalink:2333"
     lavalink_password: str = "youshallnotpass"
+
+    db_path: str = "/app/data/scarlett.db"

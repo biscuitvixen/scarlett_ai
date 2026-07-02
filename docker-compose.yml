@@ -5,6 +5,9 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
+    volumes:
+      # sqlite db (user timezones etc) survives container recreates
+      - bot-data:/app/data
     depends_on:
       - lavalink
 
@@ -46,3 +49,4 @@ services:
 volumes:
   hf-cache:
   lavalink-plugins:
+  bot-data:

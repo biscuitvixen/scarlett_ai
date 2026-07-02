@@ -4,6 +4,7 @@ import discord
 from discord.ext import commands
 
 from .config import Settings
+from .db import Database
 
 log = logging.getLogger(__name__)
 
@@ -21,8 +22,10 @@ class Scarlett(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix="!", intents=intents)
         self.settings = settings
+        self.db: Database | None = None
 
     async def setup_hook(self) -> None:
+        self.db = await Database.open(self.settings.db_path)
         for cog in COGS:
             await self.load_extension(cog)
             log.info("loaded %s", cog)
@@ -38,3 +41,8 @@ class Scarlett(commands.Bot):
 
     async def on_ready(self) -> None:
         log.info("logged in as %s (%s)", self.user, self.user.id)
+
+    async def close(self) -> None:
+        if self.db is not None:
+            await self.db.close()
+        await super().close()

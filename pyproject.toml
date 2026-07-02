@@ -12,6 +12,9 @@ dependencies = [
     "dateparser>=1.2",
 ]
 
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

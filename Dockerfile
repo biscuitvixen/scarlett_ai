@@ -10,7 +10,10 @@ COPY pyproject.toml ./
 COPY scarlett ./scarlett
 RUN pip install --no-cache-dir .
 
-RUN useradd --create-home scarlett
+# /app/data holds the sqlite db, mounted as a volume in compose
+RUN useradd --create-home scarlett \
+    && mkdir /app/data \
+    && chown scarlett:scarlett /app/data
 USER scarlett
 
 CMD ["python", "-m", "scarlett"]
