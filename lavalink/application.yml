@@ -1,0 +1,22 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+
+lavalink:
+  server:
+    # Overridden by LAVALINK_SERVER_PASSWORD from the compose file
+    password: youshallnotpass
+    sources:
+      # Lavalink 4 dropped built-in YouTube, it needs the youtube-source
+      # plugin (https://github.com/lavalink-devs/youtube-source)
+      soundcloud: true
+      bandcamp: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO

@@ -1,0 +1,10 @@
+.git
+.env
+__pycache__
+*.pyc
+.venv
+data
+README.md
+docker-compose.yml
+lavalink
+.github
