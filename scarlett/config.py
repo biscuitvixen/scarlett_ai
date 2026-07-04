@@ -31,9 +31,16 @@ class Settings(BaseSettings):
     # comma separated user ids exempt from every chat rate limit (that's you)
     owner_ids: str = ""
 
-    # how much friends can lean on her. min seconds between replies to one
-    # person, and a rolling one hour cap on replies to that person
-    chat_user_cooldown: float = 10.0
+    # how much friends can lean on her. the per person cooldown escalates the
+    # more they talk: the first chat_cooldown_burst replies sit at the base
+    # gap, then each extra reply multiplies it by chat_cooldown_factor up to
+    # chat_cooldown_max. quiet time heals it back, one step per
+    # chat_cooldown_recover seconds. a rolling one hour cap is the hard ceiling.
+    chat_cooldown_base: float = 3.0
+    chat_cooldown_burst: int = 3
+    chat_cooldown_factor: float = 2.2
+    chat_cooldown_max: float = 240.0
+    chat_cooldown_recover: float = 45.0
     chat_user_hourly_cap: int = 20
     # how many generations may run at once, the rest queue so a flood can't
     # pile onto the gpu

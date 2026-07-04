@@ -31,7 +31,14 @@ class Chat(commands.Cog):
         self.bot = bot
         self.last_interject: dict[int, float] = {}
         s = bot.settings
-        self.limiter = RateLimiter(s.chat_user_cooldown, s.chat_user_hourly_cap)
+        self.limiter = RateLimiter(
+            base=s.chat_cooldown_base,
+            burst=s.chat_cooldown_burst,
+            factor=s.chat_cooldown_factor,
+            max_cooldown=s.chat_cooldown_max,
+            recover=s.chat_cooldown_recover,
+            hourly_cap=s.chat_user_hourly_cap,
+        )
         self.sem = asyncio.Semaphore(s.chat_max_concurrent)
         # users who've already had the one-time notice this burst
         self.throttle_notified: set[int] = set()
