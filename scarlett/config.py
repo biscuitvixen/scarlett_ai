@@ -28,6 +28,20 @@ class Settings(BaseSettings):
     personality_path: str = "/app/personality.md"
     # comma separated guild ids where the chat personality may talk
     chat_guild_ids: str = ""
+    # comma separated user ids exempt from every chat rate limit (that's you)
+    owner_ids: str = ""
+
+    # how much friends can lean on her. min seconds between replies to one
+    # person, and a rolling one hour cap on replies to that person
+    chat_user_cooldown: float = 10.0
+    chat_user_hourly_cap: int = 20
+    # how many generations may run at once, the rest queue so a flood can't
+    # pile onto the gpu
+    chat_max_concurrent: int = 2
+    # caps on the transcript fed to the model, so a pasted wall of text can't
+    # blow up the prompt. per line and total, in characters
+    chat_line_char_cap: int = 500
+    chat_transcript_char_cap: int = 4000
 
     lavalink_url: str = "http://lavalink:2333"
     lavalink_password: str = "youshallnotpass"
@@ -36,8 +50,12 @@ class Settings(BaseSettings):
 
     @property
     def chat_guilds(self) -> set[int]:
-        return {
-            int(g)
-            for g in self.chat_guild_ids.replace(" ", "").split(",")
-            if g
-        }
+        return self._id_set(self.chat_guild_ids)
+
+    @property
+    def owners(self) -> set[int]:
+        return self._id_set(self.owner_ids)
+
+    @staticmethod
+    def _id_set(raw: str) -> set[int]:
+        return {int(x) for x in raw.replace(" ", "").split(",") if x}

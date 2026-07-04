@@ -6,6 +6,7 @@ lives in personality.md, which the LLM wrapper rereads on every call, so
 it can be edited live without a rebuild.
 """
 
+import asyncio
 import logging
 import random
 import time
@@ -13,18 +14,27 @@ import time
 import discord
 from discord.ext import commands
 
+from ..ratelimit import RateLimiter
+
 log = logging.getLogger(__name__)
 
 HISTORY_LIMIT = 15
 INTERJECT_CHANCE = 0.02
 INTERJECT_COOLDOWN = 600  # seconds per channel
 FALLBACK = "brain's not switched on right now, someone poke the gpu"
+# said once when someone's being throttled, then she goes quiet for them
+THROTTLE_LINES = ("easy, one at a time", "give me a sec, yeah?", "hang on")
 
 
 class Chat(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.last_interject: dict[int, float] = {}
+        s = bot.settings
+        self.limiter = RateLimiter(s.chat_user_cooldown, s.chat_user_hourly_cap)
+        self.sem = asyncio.Semaphore(s.chat_max_concurrent)
+        # users who've already had the one-time notice this burst
+        self.throttle_notified: set[int] = set()
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
@@ -44,10 +54,26 @@ class Chat(commands.Cog):
         ):
             return
 
+        # owners bypass every limit, everyone else gets throttled. a mention
+        # while throttled earns one terse notice then silence, an interjection
+        # she'd have made just gets dropped
+        user_id = message.author.id
+        owner = user_id in self.bot.settings.owners
+        if not owner and not self.limiter.allowed(user_id, time.monotonic()):
+            if mentioned and user_id not in self.throttle_notified:
+                self.throttle_notified.add(user_id)
+                await message.reply(
+                    random.choice(THROTTLE_LINES), mention_author=False
+                )
+            return
+        self.throttle_notified.discard(user_id)
+
         transcript = await self._transcript(message.channel)
         text = FALLBACK
         try:
-            async with message.channel.typing():
+            # the semaphore serialises generations so a burst queues instead
+            # of dogpiling the gpu
+            async with self.sem, message.channel.typing():
                 text = await self.bot.llm.chat_reply(
                     transcript, self.bot.user.display_name
                 ) or FALLBACK
@@ -59,6 +85,11 @@ class Chat(commands.Cog):
         elif text is not FALLBACK:
             await message.channel.send(text[:2000])
             self.last_interject[message.channel.id] = time.monotonic()
+        else:
+            return
+
+        if not owner:
+            self.limiter.record(user_id, time.monotonic())
 
     async def _addressed_to_me(self, message: discord.Message) -> bool:
         if self.bot.user in message.mentions:
@@ -83,11 +114,22 @@ class Chat(commands.Cog):
         return last is None or time.monotonic() - last > INTERJECT_COOLDOWN
 
     async def _transcript(self, channel: discord.abc.Messageable) -> str:
+        line_cap = self.bot.settings.chat_line_char_cap
+        total_cap = self.bot.settings.chat_transcript_char_cap
         lines = []
+        total = 0
+        # history comes newest first, so build from the newest and stop once
+        # the budget is full to keep the most recent messages
         async for m in channel.history(limit=HISTORY_LIMIT):
             if not m.content:
                 continue
-            lines.append(f"{m.author.display_name}: {m.clean_content}")
+            line = f"{m.author.display_name}: {m.clean_content}"
+            if len(line) > line_cap:
+                line = line[:line_cap] + "..."
+            if lines and total + len(line) > total_cap:
+                break
+            lines.append(line)
+            total += len(line) + 1
         return "\n".join(reversed(lines))
 
 
