@@ -9,9 +9,9 @@ from .llm import LLM
 
 log = logging.getLogger(__name__)
 
+# always loaded; the chat cog is added on top only when the LLM is enabled
 COGS = [
     "scarlett.cogs.general",
-    "scarlett.cogs.chat",
     "scarlett.cogs.timestamps",
     "scarlett.cogs.music",
 ]
@@ -24,11 +24,12 @@ class Scarlett(commands.Bot):
         super().__init__(command_prefix="!", intents=intents)
         self.settings = settings
         self.db: Database | None = None
-        self.llm = LLM(settings)
+        self.llm: LLM | None = LLM(settings) if settings.llm_enabled else None
 
     async def setup_hook(self) -> None:
         self.db = await Database.open(self.settings.db_path)
-        for cog in COGS:
+        cogs = COGS + ["scarlett.cogs.chat"] if self.settings.llm_enabled else COGS
+        for cog in cogs:
             await self.load_extension(cog)
             log.info("loaded %s", cog)
 

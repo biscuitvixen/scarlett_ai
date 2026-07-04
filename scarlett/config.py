@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     def _blank_is_none(cls, v):
         return None if v == "" else v
 
+    # when false the bot runs without any LLM: the chat cog is not loaded and
+    # she stays silent, while timestamps and music keep working
+    llm_enabled: bool = True
     llm_base_url: str = "http://vllm:8000/v1"
     llm_model: str = ""
     llm_api_key: str = "not-needed"

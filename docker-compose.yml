@@ -1,4 +1,7 @@
 services:
+  # The bot reaches the LLM over HTTP, so vllm can be local, remote, or absent.
+  # Set LLM_ENABLED and LLM_BASE_URL in .env; see the README deployment modes.
+  # To serve only the model on the Spark: docker compose --profile llm up -d vllm
   bot:
     build: .
     env_file:
