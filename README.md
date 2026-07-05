@@ -2,13 +2,13 @@
 
 A Discord bot with an optional local LLM behind it. Runs anywhere Docker does, from a small CPU-only box to a GPU host like a DGX Spark.
 
-Planned features:
+Features:
 
-- **Personality chat**: talks to a model over an OpenAI-compatible API (vLLM in a separate container, or any remote endpoint), replies when mentioned and occasionally interjects. Optional, and can be turned off entirely.
-- **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>`), so everyone sees the time in their own zone. Deterministic parsing first, LLM only as a fallback for fuzzy phrasing. Users register a timezone with `/tz`.
-- **Music**: plays audio from links in voice channels via Lavalink.
+- **Personality chat**: talks to a model over an OpenAI-compatible API (vLLM in a separate container, or any remote endpoint). She replies when mentioned or replied to and occasionally interjects on her own, only in whitelisted guilds (`CHAT_GUILD_IDS`) and with per-user rate limiting. Her personality lives in `personality.md`, reread on every reply, so it can be edited live without a rebuild. Optional: set `LLM_ENABLED=false` and she stays silent while everything else keeps working.
+- **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted).
+- **Music**: plays audio in voice channels via Lavalink. `/play` takes a link or a search term; `/skip`, `/stop`, `/pause`, `/volume`, `/shuffle`, `/loop`, `/queue` and `/nowplaying` round it out. She manages a queue and leaves on her own once the channel empties or nothing has played for a while.
 
-This is currently a skeleton. The bot connects, loads its cogs, and answers `/ping`. Everything else is stubbed.
+Plus `/ping` to check she's alive.
 
 ## Architecture
 
@@ -17,7 +17,7 @@ Three containers, defined in `docker-compose.yml`:
 | Service  | What it does |
 |----------|--------------|
 | bot      | The discord.py bot itself. CPU only. |
-| lavalink | Audio server the bot will control via wavelink. |
+| lavalink | Audio server the bot controls via wavelink for music playback. |
 | vllm     | Serves the LLM over an OpenAI-compatible API. Needs a GPU. Opt-in via the `llm` compose profile since it holds model weights in memory. |
 
 The bot never touches the GPU directly. It just speaks HTTP to whatever `LLM_BASE_URL` points at, so the LLM can run in the bundled `vllm` container, on a separate GPU machine, or be swapped for Ollama or anything else OpenAI-compatible. Without a GPU anywhere, run the bot on its own and leave the LLM off.
@@ -52,6 +52,51 @@ When you are ready to run inference, set `LLM_MODEL` in `.env` and start the LLM
 ```sh
 docker compose --profile llm up -d
 ```
+
+## Music
+
+Playback runs through the `lavalink` container using the [youtube-source](https://github.com/lavalink-devs/youtube-source) plugin (Lavalink 4 dropped its built-in YouTube support). Two things need doing once on a fresh machine:
+
+- **Plugin volume ownership.** Lavalink runs as uid 322, but Docker creates the `lavalink-plugins` volume as root, so the first plugin download fails with a permission error until you fix it:
+
+  ```sh
+  docker run --rm -v scarlett_ai_lavalink-plugins:/p alpine chown -R 322:322 /p
+  ```
+
+- **YouTube OAuth**, which is the reliable cure for "sign in to confirm you're not a bot" errors. Start Lavalink with `YOUTUBE_OAUTH_REFRESH_TOKEN` blank in `.env` and watch its logs (`docker compose logs -f lavalink`): it prints a device-link URL and code. Authorise with a **burner** Google account (never your main one), then copy the refresh token it logs into `YOUTUBE_OAUTH_REFRESH_TOKEN` in `.env` and restart. The token is injected into `lavalink/application.yml` via the compose file, so it never lives in a tracked file.
+
+## Slash command sync
+
+Discord keeps slash commands in two separate registries: **global** (shows in every
+guild the bot is in, but changes can take up to an hour to appear) and **per-guild**
+(one guild, updates instantly). The bot chooses based on `GUILD_ID` in `.env`:
+
+- `GUILD_ID` blank: syncs globally.
+- `GUILD_ID=<id>`: syncs to that one guild, handy for instant iteration while developing.
+
+Gotcha: if you sync globally and *then* set `GUILD_ID`, that guild ends up with **both**
+copies and shows every command twice. Blanking `GUILD_ID` again stops the bot re-adding
+the guild copy, but the commands already sitting in the guild registry stay until you
+wipe them. To clear one guild's scope (global commands are left alone), run this against
+the running bot container, which already has `DISCORD_TOKEN` in its environment:
+
+```sh
+docker compose exec -T bot python - <GUILD_ID> <<'PY'
+import asyncio, os, sys, discord
+
+async def main(guild_id):
+    client = discord.Client(intents=discord.Intents.none())
+    await client.login(os.environ["DISCORD_TOKEN"])
+    app = await client.application_info()
+    await client.http.bulk_upsert_guild_commands(app.id, guild_id, [])
+    await client.close()
+    print(f"cleared guild-scoped commands for {guild_id}")
+
+asyncio.run(main(int(sys.argv[1])))
+PY
+```
+
+Then leave `GUILD_ID` blank so it stays clean.
 
 ## Running the LLM on a GPU host
 
