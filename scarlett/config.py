@@ -52,6 +52,9 @@ class Settings(BaseSettings):
 
     lavalink_url: str = "http://lavalink:2333"
     lavalink_password: str = "youshallnotpass"
+    # seconds she lingers in a voice channel with nothing playing before
+    # disconnecting on her own
+    music_idle_timeout: int = 300
 
     db_path: str = "/app/data/scarlett.db"
 
