@@ -1,6 +1,7 @@
 import logging
 
 import discord
+import wavelink
 from discord.ext import commands
 
 from .config import Settings
@@ -32,6 +33,19 @@ class Scarlett(commands.Bot):
         for cog in cogs:
             await self.load_extension(cog)
             log.info("loaded %s", cog)
+
+        # Connect to lavalink for music. Wrapped so an unreachable node just
+        # disables playback instead of taking the whole bot down, same spirit
+        # as the sync fallback below. wavelink.Pool is global, the music cog
+        # reaches it without any extra wiring.
+        try:
+            node = wavelink.Node(
+                uri=self.settings.lavalink_url,
+                password=self.settings.lavalink_password,
+            )
+            await wavelink.Pool.connect(client=self, nodes=[node])
+        except Exception:
+            log.exception("could not connect to lavalink, music will be unavailable")
 
         # Guild-scoped sync shows new slash commands immediately.
         # Global sync can take up to an hour, so use GUILD_ID during dev.

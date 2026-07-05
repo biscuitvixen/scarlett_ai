@@ -21,6 +21,8 @@ services:
     restart: unless-stopped
     environment:
       LAVALINK_SERVER_PASSWORD: ${LAVALINK_PASSWORD:-youshallnotpass}
+      # Secret, kept in .env. application.yml reads it as a ${} placeholder.
+      YOUTUBE_OAUTH_REFRESH_TOKEN: ${YOUTUBE_OAUTH_REFRESH_TOKEN:-}
     volumes:
       - ./lavalink/application.yml:/opt/Lavalink/application.yml:ro
       # Cache downloaded plugin jars so they survive container recreates.
