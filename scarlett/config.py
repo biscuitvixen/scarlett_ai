@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # blow up the prompt. per line and total, in characters
     chat_line_char_cap: int = 500
     chat_transcript_char_cap: int = 4000
+    # a swapped-out model (llama-swap) takes a moment to load on the first
+    # request. if a reply she's been asked for is slower than this many seconds,
+    # she posts a quick "waking up" line first instead of sitting silent
+    chat_wake_after: float = 8.0
 
     lavalink_url: str = "http://lavalink:2333"
     lavalink_password: str = "youshallnotpass"

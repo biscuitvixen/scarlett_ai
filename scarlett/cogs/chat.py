@@ -24,6 +24,12 @@ INTERJECT_COOLDOWN = 600  # seconds per channel
 FALLBACK = "My brain's not switched on right now, someone go poke the GPU."
 # said once when someone's being throttled, then she goes quiet for them
 THROTTLE_LINES = ("Easy, one at a time.", "Give me a sec, yeah?", "Hang on a moment.")
+# posted when a reply is slow to arrive, usually a swapped-out model warming up
+WAKE_LINES = (
+    "Hang on, just waking up...",
+    "One sec, booting my brain back up...",
+    "Gimme a moment, still stretching...",
+)
 
 
 class Chat(commands.Cog):
@@ -40,6 +46,7 @@ class Chat(commands.Cog):
             hourly_cap=s.chat_user_hourly_cap,
         )
         self.sem = asyncio.Semaphore(s.chat_max_concurrent)
+        self.wake_after = s.chat_wake_after
         # users who've already had the one-time notice this burst
         self.throttle_notified: set[int] = set()
 
@@ -81,9 +88,18 @@ class Chat(commands.Cog):
             # the semaphore serialises generations so a burst queues instead
             # of dogpiling the gpu
             async with self.sem, message.channel.typing():
-                text = await self.bot.llm.chat_reply(
-                    transcript, self.bot.user.display_name
-                ) or FALLBACK
+                task = asyncio.create_task(
+                    self.bot.llm.chat_reply(transcript, self.bot.user.display_name)
+                )
+                # a swapped-out model (llama-swap) has to load on the first
+                # request, so if she's been addressed and the reply is slow,
+                # say she's waking up rather than sit there silent
+                done, _ = await asyncio.wait({task}, timeout=self.wake_after)
+                if not done and mentioned:
+                    await message.reply(
+                        random.choice(WAKE_LINES), mention_author=False
+                    )
+                text = await task or FALLBACK
         except Exception:
             log.exception("llm request failed")
 
