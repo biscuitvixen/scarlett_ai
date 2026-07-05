@@ -8,7 +8,7 @@ Features:
 - **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted).
 - **Music**: plays audio in voice channels via Lavalink. `/play` takes a link or a search term; `/skip`, `/stop`, `/pause`, `/volume`, `/shuffle`, `/loop`, `/queue` and `/nowplaying` round it out. She manages a queue and leaves on her own once the channel empties or nothing has played for a while.
 
-Plus `/ping` to check she's alive.
+Plus `/ping` to check she's alive and `/help` to list everything.
 
 ## Architecture
 
@@ -64,6 +64,12 @@ Playback runs through the `lavalink` container using the [youtube-source](https:
   ```
 
 - **YouTube OAuth**, which is the reliable cure for "sign in to confirm you're not a bot" errors. Start Lavalink with `YOUTUBE_OAUTH_REFRESH_TOKEN` blank in `.env` and watch its logs (`docker compose logs -f lavalink`): it prints a device-link URL and code. Authorise with a **burner** Google account (never your main one), then copy the refresh token it logs into `YOUTUBE_OAUTH_REFRESH_TOKEN` in `.env` and restart. The token is injected into `lavalink/application.yml` via the compose file, so it never lives in a tracked file.
+
+### Sources
+
+Beyond YouTube, the sources enabled in `lavalink/application.yml` are **SoundCloud**, **Bandcamp**, **Twitch**, **Vimeo**, and **HTTP** (direct audio URLs and stream/radio links). Paste a link from any of them into `/play`; plain-text searches go to YouTube. Lavalink also ships **Niconico** and **local files**, both left off. To turn one on, flip it to `true` under `lavalink.server.sources` and restart the `lavalink` container.
+
+More services (Spotify, Apple Music, Deezer, Tidal, Yandex, ...) can be added with the [LavaSrc](https://github.com/topi314/LavaSrc) plugin, wired in the same way as the youtube-source plugin. Note that Spotify, Apple Music and Tidal are metadata-only "mirror" sources: LavaSrc reads the track details from the link but streams the actual audio from YouTube.
 
 ## Slash command sync
 
