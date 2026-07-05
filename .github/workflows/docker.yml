@@ -38,6 +38,9 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=sha
+            # a moving 'latest' on the default branch, so deployments can pin
+            # to :latest instead of chasing the branch or sha tags
+            type=raw,value=latest,enable={{is_default_branch}}
 
       - uses: docker/build-push-action@v6
         with:
