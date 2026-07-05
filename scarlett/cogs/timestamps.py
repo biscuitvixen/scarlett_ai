@@ -61,8 +61,8 @@ class Timestamps(commands.Cog):
         self.last_prompted[message.author.id] = now
         # reply() pings the author by default, which is wanted here
         await message.reply(
-            "That looks like a time, but I don't know your timezone yet. "
-            "Set it with /tz and I'll translate times for everyone."
+            "That looks like a time! I don't know your timezone yet though. "
+            "Set it with /tz and I'll sort the conversions for everyone."
         )
 
     @app_commands.command(
@@ -72,16 +72,16 @@ class Timestamps(commands.Cog):
     async def tz(self, interaction: discord.Interaction, timezone: str) -> None:
         if timezone not in self.zone_set:
             await interaction.response.send_message(
-                f"'{timezone}' is not an IANA timezone name. "
-                "Try the autocomplete, e.g. Europe/London.",
+                f"Hmm, '{timezone}' isn't an IANA timezone name. "
+                "Try the autocomplete, something like Europe/London.",
                 ephemeral=True,
             )
             return
         await self.bot.db.set_timezone(interaction.user.id, timezone)
         local = datetime.now(ZoneInfo(timezone)).strftime("%H:%M")
         await interaction.response.send_message(
-            f"Timezone set to {timezone}. "
-            f"Your local time should be {local}, if not, pick again.",
+            f"All set, your timezone's {timezone}. "
+            f"That puts your local time around {local}, if that's off just pick again.",
             ephemeral=True,
         )
 

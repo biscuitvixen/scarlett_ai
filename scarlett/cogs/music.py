@@ -76,7 +76,7 @@ class Music(commands.Cog):
         player: wavelink.Player | None = interaction.guild.voice_client
         if player is None:
             await interaction.response.send_message(
-                "nothing's playing", ephemeral=True
+                "Nothing's playing right now.", ephemeral=True
             )
             return None
         if same_channel:
@@ -87,7 +87,8 @@ class Music(commands.Cog):
             )
             if voice is None or voice.channel != player.channel:
                 await interaction.response.send_message(
-                    "you've gotta be in my voice channel for that", ephemeral=True
+                    "You've got to be in my voice channel for that one.",
+                    ephemeral=True,
                 )
                 return None
         return player
@@ -98,7 +99,7 @@ class Music(commands.Cog):
         # you have to be in a voice channel for her to know where to join
         if not isinstance(interaction.user, discord.Member) or not interaction.user.voice:
             await interaction.response.send_message(
-                "hop into a voice channel first", ephemeral=True
+                "Hop into a voice channel first and I'll join you.", ephemeral=True
             )
             return
 
@@ -122,21 +123,21 @@ class Music(commands.Cog):
             tracks: wavelink.Search = await wavelink.Playable.search(query)
         except wavelink.LavalinkLoadException:
             log.exception("lavalink failed to load %r", query)
-            await interaction.followup.send("couldn't load that one, try another")
+            await interaction.followup.send("Couldn't load that one, sorry. Try another?")
             return
         if not tracks:
-            await interaction.followup.send("couldn't find anything for that")
+            await interaction.followup.send("Couldn't find anything for that, sorry.")
             return
 
         if isinstance(tracks, wavelink.Playlist):
             added = await player.queue.put_wait(tracks)
             await interaction.followup.send(
-                f"queued **{added}** tracks from **{tracks.name}**"
+                f"Queued **{added}** tracks from **{tracks.name}**."
             )
         else:
             track = tracks[0]
             await player.queue.put_wait(track)
-            await interaction.followup.send(f"queued **{track.title}**")
+            await interaction.followup.send(f"Queued **{track.title}**.")
 
         if not player.playing:
             await player.play(player.queue.get())
@@ -148,11 +149,11 @@ class Music(commands.Cog):
             return
         if not player.playing:
             await interaction.response.send_message(
-                "nothing's playing", ephemeral=True
+                "Nothing's playing right now.", ephemeral=True
             )
             return
         await player.skip(force=True)
-        await interaction.response.send_message("skipped", ephemeral=True)
+        await interaction.response.send_message("Skipped it.", ephemeral=True)
 
     @app_commands.command(description="Pause or resume playback")
     async def pause(self, interaction: discord.Interaction) -> None:
@@ -161,7 +162,7 @@ class Music(commands.Cog):
             return
         await player.pause(not player.paused)
         await interaction.response.send_message(
-            "paused" if player.paused else "back on", ephemeral=True
+            "Paused." if player.paused else "Back on.", ephemeral=True
         )
 
     @app_commands.command(description="Set the playback volume")
@@ -174,7 +175,7 @@ class Music(commands.Cog):
             return
         await player.set_volume(level)
         await interaction.response.send_message(
-            f"volume set to {level}", ephemeral=True
+            f"Volume's at {level} now.", ephemeral=True
         )
 
     @app_commands.command(description="Shuffle the queue")
@@ -184,11 +185,11 @@ class Music(commands.Cog):
             return
         if player.queue.count < 2:
             await interaction.response.send_message(
-                "not enough queued to shuffle", ephemeral=True
+                "Not enough in the queue to shuffle.", ephemeral=True
             )
             return
         player.queue.shuffle()
-        await interaction.response.send_message("shuffled", ephemeral=True)
+        await interaction.response.send_message("Shuffled the queue.", ephemeral=True)
 
     @app_commands.command(description="Cycle looping: off, track, whole queue")
     async def loop(self, interaction: discord.Interaction) -> None:
@@ -196,9 +197,11 @@ class Music(commands.Cog):
         if player is None:
             return
         player.queue.mode = _LOOP_NEXT[player.queue.mode]
-        await interaction.response.send_message(
-            f"looping {_LOOP_LABELS[player.queue.mode]}", ephemeral=True
-        )
+        if player.queue.mode == wavelink.QueueMode.normal:
+            message = "Loop's off now."
+        else:
+            message = f"Looping {_LOOP_LABELS[player.queue.mode]} now."
+        await interaction.response.send_message(message, ephemeral=True)
 
     @app_commands.command(description="Show the queue")
     async def queue(self, interaction: discord.Interaction) -> None:
@@ -207,24 +210,24 @@ class Music(commands.Cog):
             return
         if player.current is None and player.queue.is_empty:
             await interaction.response.send_message(
-                "the queue's empty", ephemeral=True
+                "The queue's empty.", ephemeral=True
             )
             return
 
-        embed = discord.Embed(title="queue", color=discord.Color.blurple())
+        embed = discord.Embed(title="Queue", color=discord.Color.blurple())
         if player.current is not None:
             embed.add_field(
-                name="now playing", value=f"**{player.current.title}**", inline=False
+                name="Now playing", value=f"**{player.current.title}**", inline=False
             )
         upcoming = list(player.queue)[:10]
         if upcoming:
             lines = [f"{i}. {t.title}" for i, t in enumerate(upcoming, 1)]
             extra = player.queue.count - len(upcoming)
             if extra > 0:
-                lines.append(f"...and {extra} more")
-            embed.add_field(name="up next", value="\n".join(lines), inline=False)
+                lines.append(f"…and {extra} more")
+            embed.add_field(name="Up next", value="\n".join(lines), inline=False)
         embed.set_footer(
-            text=f"loop: {_LOOP_LABELS[player.queue.mode]} · volume: {player.volume}"
+            text=f"Loop: {_LOOP_LABELS[player.queue.mode]} · Volume: {player.volume}"
         )
         await interaction.response.send_message(embed=embed)
 
@@ -236,7 +239,7 @@ class Music(commands.Cog):
         track = player.current
         if track is None:
             await interaction.response.send_message(
-                "nothing's playing", ephemeral=True
+                "Nothing's playing right now.", ephemeral=True
             )
             return
         bar = _progress_bar(player.position, track.length)
@@ -260,7 +263,9 @@ class Music(commands.Cog):
             return
         player.queue.reset()
         await player.disconnect()
-        await interaction.response.send_message("stopped, see you", ephemeral=True)
+        await interaction.response.send_message(
+            "Stopped, see you around.", ephemeral=True
+        )
 
     @commands.Cog.listener()
     async def on_wavelink_inactive_player(self, player: wavelink.Player) -> None:

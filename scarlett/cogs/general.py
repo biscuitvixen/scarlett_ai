@@ -10,7 +10,7 @@ class General(commands.Cog):
     @app_commands.command(description="Check that the bot is alive")
     async def ping(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
-            f"pong ({self.bot.latency * 1000:.0f}ms)"
+            f"Still here, {self.bot.latency * 1000:.0f}ms."
         )
 
 

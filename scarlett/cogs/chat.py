@@ -21,9 +21,9 @@ log = logging.getLogger(__name__)
 HISTORY_LIMIT = 15
 INTERJECT_CHANCE = 0.02
 INTERJECT_COOLDOWN = 600  # seconds per channel
-FALLBACK = "brain's not switched on right now, someone poke the gpu"
+FALLBACK = "My brain's not switched on right now, someone go poke the GPU."
 # said once when someone's being throttled, then she goes quiet for them
-THROTTLE_LINES = ("easy, one at a time", "give me a sec, yeah?", "hang on")
+THROTTLE_LINES = ("Easy, one at a time.", "Give me a sec, yeah?", "Hang on a moment.")
 
 
 class Chat(commands.Cog):
