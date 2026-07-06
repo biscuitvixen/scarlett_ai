@@ -15,6 +15,7 @@ COGS = [
     "scarlett.cogs.general",
     "scarlett.cogs.timestamps",
     "scarlett.cogs.music",
+    "scarlett.cogs.health",
 ]
 
 

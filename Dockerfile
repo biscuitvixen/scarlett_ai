@@ -17,4 +17,10 @@ RUN useradd --create-home scarlett \
     && chown scarlett:scarlett /app/data
 USER scarlett
 
+# healthy == connected to the gateway. the Health cog stamps a heartbeat file
+# while the bot is ready; this fails once it goes stale. start-period covers
+# login and the first gateway connect before failures start counting
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD ["python", "-m", "scarlett.health"]
+
 CMD ["python", "-m", "scarlett"]
