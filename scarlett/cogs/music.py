@@ -103,6 +103,12 @@ class Music(commands.Cog):
             )
             return
 
+        # ack straight away. joining a voice channel for the first time is a
+        # slow handshake, and together with the search below it can blow past
+        # discord's 3s window to acknowledge the command (10062 unknown
+        # interaction). defer buys us up to 15 minutes to follow up
+        await interaction.response.defer()
+
         # reuse the existing player if she's already in a channel, otherwise
         # join the caller's. autoplay partial just walks the queue, it won't
         # start pulling in youtube recommendations of its own. the idle timeout
@@ -112,9 +118,6 @@ class Music(commands.Cog):
             player = await interaction.user.voice.channel.connect(cls=wavelink.Player)
             player.autoplay = wavelink.AutoPlayMode.partial
             player.inactive_timeout = self.bot.settings.music_idle_timeout
-
-        # searching can take a moment, don't let the interaction time out
-        await interaction.response.defer()
 
         # search raises rather than returning empty when lavalink itself
         # chokes (youtube throttling, a dead source), so catch it and reply
