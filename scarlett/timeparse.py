@@ -10,7 +10,7 @@ a clock time kills most false positives (prices, scores, "may", "sat").
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -42,6 +42,14 @@ COMPACT_24H_HRS = re.compile(
     r"\b([01]\d|2[0-3])([0-5]\d)\s*(?:hrs?|hours)\b", re.IGNORECASE
 )
 
+# "in 45 minutes" is just now + delta, no parser needed. Handled here and
+# blanked out of the text because dateparser's relative and absolute parsers
+# want RELATIVE_BASE in different timezones (see extract_times), so no single
+# call gets both right.
+RELATIVE_IN = re.compile(
+    r"\bin\s+(\d+)\s*(minutes?|mins?|hours?|hrs?)\b", re.IGNORECASE
+)
+
 MAX_MATCHES = 3
 
 
@@ -63,24 +71,48 @@ def extract_times(
 
     if now is None:
         now = datetime.now(tz)
-    # dateparser applies TIMEZONE on top of the relative base, so the base
-    # must be naive wall-clock time in the target zone
-    base = now.astimezone(tz).replace(tzinfo=None)
-
-    found = search_dates(
-        text,
-        languages=["en"],
-        settings={
-            "PREFER_DATES_FROM": "future",
-            "RETURN_AS_TIMEZONE_AWARE": True,
-            "TIMEZONE": str(tz),
-            "RELATIVE_BASE": base,
-        },
-    )
+    now = now.astimezone(tz)
 
     matches: list[TimeMatch] = []
     seen: set[int] = set()
+
+    def relative(m: re.Match) -> str:
+        amount = int(m.group(1))
+        unit = m.group(2).lower()
+        delta = timedelta(hours=amount) if unit.startswith("h") else timedelta(
+            minutes=amount
+        )
+        when = now + delta
+        unix = int(when.timestamp())
+        if unix not in seen and len(matches) < MAX_MATCHES:
+            seen.add(unix)
+            matches.append(TimeMatch(m.group(0), when))
+        # blank the span so dateparser doesn't parse it again
+        return " " * len(m.group(0))
+
+    text = RELATIVE_IN.sub(relative, text)
+
+    if TIME_OF_DAY.search(text):
+        # dateparser's future preference for bare times compares the parsed
+        # time converted to UTC against RELATIVE_BASE, so the base must be
+        # naive UTC (its own default), not wall-clock in the target zone
+        base = now.astimezone(timezone.utc).replace(tzinfo=None)
+        found = search_dates(
+            text,
+            languages=["en"],
+            settings={
+                "PREFER_DATES_FROM": "future",
+                "RETURN_AS_TIMEZONE_AWARE": True,
+                "TIMEZONE": str(tz),
+                "RELATIVE_BASE": base,
+            },
+        )
+    else:
+        found = None
+
     for phrase, when in found or []:
+        if len(matches) == MAX_MATCHES:
+            break
         # search_dates happily matches bare numbers and weekdays,
         # only keep phrases that carry an actual time of day
         if not TIME_OF_DAY.search(phrase):
@@ -91,6 +123,4 @@ def extract_times(
             continue
         seen.add(unix)
         matches.append(TimeMatch(phrase.strip(), when))
-        if len(matches) == MAX_MATCHES:
-            break
     return matches

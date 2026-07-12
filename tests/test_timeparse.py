@@ -63,6 +63,22 @@ def test_future_preference():
     assert int(m.when.timestamp()) == unix(2026, 7, 2, 15, 0)
 
 
+def test_imminent_time_stays_today():
+    # said at 20:55 about 21:00 the same evening; dateparser compares bare
+    # times against the base in UTC, which used to shift this to tomorrow
+    # for any zone ahead of UTC (BST here)
+    late = datetime(2026, 7, 11, 20, 55, tzinfo=LONDON)
+    (m,) = extract_times("social will start at 21:00", LONDON, late)
+    assert int(m.when.timestamp()) == unix(2026, 7, 11, 21, 0)
+
+
+def test_relative_and_absolute_mixed():
+    text = "starting in 45 minutes, so 14:45"
+    matches = extract_times(text, LONDON, NOW)
+    stamps = {int(m.when.timestamp()) for m in matches}
+    assert stamps == {int(NOW.timestamp()) + 45 * 60}
+
+
 def test_timezone_changes_result():
     # same wall clock base in each zone, same phrase, 6h apart in July
     chi_now = datetime(2026, 7, 1, 14, 0, tzinfo=CHICAGO)
