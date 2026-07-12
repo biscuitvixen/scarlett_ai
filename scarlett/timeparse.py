@@ -52,11 +52,18 @@ RELATIVE_IN = re.compile(
 
 MAX_MATCHES = 3
 
+# anything closer than this is happening "now-ish" for everyone in the
+# conversation, converting it just adds noise
+MIN_LEAD = timedelta(hours=2)
+
 
 def extract_times(
     text: str, tz: ZoneInfo, now: datetime | None = None
 ) -> list[TimeMatch]:
     """Return up to MAX_MATCHES concrete times found in text.
+
+    Times less than MIN_LEAD ahead of now are dropped, close enough that
+    a conversion helps nobody.
 
     now anchors relative phrases ("in 45 minutes") and future preference,
     mainly so tests can pin it. Defaults to the current time.
@@ -84,7 +91,7 @@ def extract_times(
         )
         when = now + delta
         unix = int(when.timestamp())
-        if unix not in seen and len(matches) < MAX_MATCHES:
+        if delta >= MIN_LEAD and unix not in seen and len(matches) < MAX_MATCHES:
             seen.add(unix)
             matches.append(TimeMatch(m.group(0), when))
         # blank the span so dateparser doesn't parse it again
@@ -118,6 +125,8 @@ def extract_times(
         if not TIME_OF_DAY.search(phrase):
             continue
         when = when.astimezone(tz)
+        if when - now < MIN_LEAD:
+            continue
         unix = int(when.timestamp())
         if unix in seen:
             continue

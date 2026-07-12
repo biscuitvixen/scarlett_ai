@@ -31,9 +31,14 @@ def test_24h_tomorrow():
     assert int(m.when.timestamp()) == unix(2026, 7, 2, 19, 30)
 
 
-def test_relative_minutes():
-    (m,) = extract_times("starting in 45 minutes", LONDON, NOW)
-    assert int(m.when.timestamp()) == int(NOW.timestamp()) + 45 * 60
+def test_relative_hours():
+    (m,) = extract_times("starting in 3 hours", LONDON, NOW)
+    assert int(m.when.timestamp()) == int(NOW.timestamp()) + 3 * 3600
+
+
+def test_relative_minutes_too_soon():
+    # under the 2 hour minimum, everyone can count to 45
+    assert extract_times("starting in 45 minutes", LONDON, NOW) == []
 
 
 def test_compact_24h_with_at():
@@ -63,20 +68,27 @@ def test_future_preference():
     assert int(m.when.timestamp()) == unix(2026, 7, 2, 15, 0)
 
 
-def test_imminent_time_stays_today():
-    # said at 20:55 about 21:00 the same evening; dateparser compares bare
-    # times against the base in UTC, which used to shift this to tomorrow
-    # for any zone ahead of UTC (BST here)
+def test_same_day_time_stays_today():
+    # dateparser compares bare times against the base in UTC, which used to
+    # shift anything within the utc offset to tomorrow. Auckland's +12 makes
+    # that window huge, so this 7h-out mention would have landed on Sunday
+    auckland = ZoneInfo("Pacific/Auckland")
+    early = datetime(2026, 7, 11, 14, 0, tzinfo=auckland)
+    (m,) = extract_times("social will start at 21:00", auckland, early)
+    assert int(m.when.timestamp()) == unix(2026, 7, 11, 21, 0, tz=auckland)
+
+
+def test_imminent_time_skipped():
+    # 5 minutes out is below the minimum lead, stay quiet
     late = datetime(2026, 7, 11, 20, 55, tzinfo=LONDON)
-    (m,) = extract_times("social will start at 21:00", LONDON, late)
-    assert int(m.when.timestamp()) == unix(2026, 7, 11, 21, 0)
+    assert extract_times("social will start at 21:00", LONDON, late) == []
 
 
 def test_relative_and_absolute_mixed():
-    text = "starting in 45 minutes, so 14:45"
+    text = "starting in 3 hours, so 17:00"
     matches = extract_times(text, LONDON, NOW)
     stamps = {int(m.when.timestamp()) for m in matches}
-    assert stamps == {int(NOW.timestamp()) + 45 * 60}
+    assert stamps == {int(NOW.timestamp()) + 3 * 3600}
 
 
 def test_timezone_changes_result():
