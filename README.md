@@ -1,40 +1,24 @@
 # scarlett
 
-A Discord bot with an optional local LLM behind it. Runs anywhere Docker does, from a small CPU-only box to a GPU host like a DGX Spark.
+A friendly, growing utility bot for Discord. Right now she handles cross-timezone timestamps and voice-channel music, with more tools on the way. Runs anywhere Docker does, no GPU needed. She can also take on a chatty personality if you want one, but that part is entirely optional.
 
 Features:
 
-- **Personality chat**: talks to a model over an OpenAI-compatible API (vLLM in a separate container, or any remote endpoint). She replies when mentioned or replied to and occasionally interjects on her own, only in whitelisted guilds (`CHAT_GUILD_IDS`) and with per-user rate limiting. Her personality lives in `personality.md`, reread on every reply, so it can be edited live without a rebuild. Optional: set `LLM_ENABLED=false` and she stays silent while everything else keeps working.
 - **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted).
 - **Music**: plays audio in voice channels via Lavalink. `/play` takes a link or a search term; `/skip`, `/stop`, `/pause`, `/volume`, `/shuffle`, `/loop`, `/queue` and `/nowplaying` round it out. She manages a queue and leaves on her own once the channel empties or nothing has played for a while.
+- **Personality chat** (optional, off by default): if you want it, she can chat back in her own voice. This is the one feature that needs an extra service, so it lives in its own section at the end; everything above works without it.
 
-Plus `/ping` to check she's alive and `/help` to list everything.
+Plus `/ping` to check she's alive and `/help` to list everything. More tools are on the way, so treat the list above as what she does today rather than the ceiling.
 
 ## Architecture
 
-Three containers, defined in `docker-compose.yml`:
+Two CPU-only containers, defined in `docker-compose.yml`, cover everything the utility features need. A third is only pulled in if you opt into the personality:
 
 | Service  | What it does |
 |----------|--------------|
 | bot      | The discord.py bot itself. CPU only. |
-| lavalink | Audio server the bot controls via wavelink for music playback. |
-| vllm     | Serves the LLM over an OpenAI-compatible API. Needs a GPU. Opt-in via the `llm` compose profile since it holds model weights in memory. |
-
-The bot never touches the GPU directly. It just speaks HTTP to whatever `LLM_BASE_URL` points at, so the LLM can run in the bundled `vllm` container, on a separate GPU machine, or be swapped for Ollama or anything else OpenAI-compatible. Without a GPU anywhere, run the bot on its own and leave the LLM off.
-
-## Deployment modes
-
-Because the bot only needs an HTTP endpoint, the LLM can live anywhere or be left out entirely. Set `LLM_ENABLED` and `LLM_BASE_URL` in `.env`:
-
-| Mode | `LLM_ENABLED` | `LLM_BASE_URL` | Start with |
-|------|---------------|----------------|-----------|
-| No LLM (CPU-only box) | `false` | ignored | `docker compose up -d` |
-| Query a remote GPU host | `true` | `http://<gpu-host>:8000/v1` | `docker compose up -d` (bot side) |
-| Bot and LLM together | `true` | `http://vllm:8000/v1` (default) | `docker compose --profile llm up -d` |
-
-With `LLM_ENABLED=false` the chat cog is not loaded, so she never speaks, but timestamps and music keep working. For the remote-host mode, run just the model on the GPU machine with `docker compose --profile llm up -d vllm`. A DGX Spark is one such host (see below), but any CUDA machine works.
-
-**Security**: vLLM has no auth by default and ignores `LLM_API_KEY` unless it is started with `--api-key`. Publishing port `8000` to anything wider than a trusted LAN/VPN gives anyone free use of the GPU. Keep the two machines on the same LAN (or a Tailscale/WireGuard network), or set a secret in `LLM_API_KEY` and add `--api-key <secret>` to the `vllm serve` command.
+| lavalink | Audio server the bot controls via wavelink for music playback. CPU only. |
+| vllm     | Optional, off by default. Serves the LLM behind the personality; needs a GPU. See [Optional: the personality](#optional-the-personality). |
 
 ## Setup
 
@@ -47,11 +31,7 @@ cp .env.example .env   # fill in DISCORD_TOKEN, and GUILD_ID for instant command
 docker compose up -d --build
 ```
 
-When you are ready to run inference, set `LLM_MODEL` in `.env` and start the LLM too:
-
-```sh
-docker compose --profile llm up -d
-```
+That is the whole utility bot up and running. Giving her a personality is a separate, optional step covered at the end.
 
 ## Music
 
@@ -104,14 +84,25 @@ PY
 
 Then leave `GUILD_ID` blank so it stays clean.
 
-## Running the LLM on a GPU host
+## Optional: the personality
 
-The `vllm` service needs an NVIDIA GPU and the container toolkit (so Docker can pass the GPU through via the `deploy.resources` reservation in the compose file). Model weights are cached in the `hf-cache` volume, so restarting the container does not re-download them.
+Everything above is the whole bot. This section is only for the extra, off-by-default feature where she chats back in her own voice, and it is the only part that pulls in an LLM. Skip it entirely and nothing else changes.
 
-If that host is a DGX Spark, note:
+When switched on, she replies when mentioned or replied to and occasionally interjects on her own, only in whitelisted guilds (`CHAT_GUILD_IDS`) and with per-user rate limiting. Her character lives in `personality.md`, reread on every reply, so you can edit it live without a rebuild.
 
-- The Spark is aarch64 (GB10), so the vLLM service must use NVIDIA's arm64 build. Check [NGC](https://catalog.ngc.nvidia.com) for the current tag and update `docker-compose.yml` if needed. (The other images are already multi-arch.)
-- DGX OS ships with the NVIDIA container toolkit, so the GPU reservation works out of the box.
+She talks to any OpenAI-compatible endpoint (the bundled `vllm` container, a separate machine, Ollama, or a hosted API), so the model can live wherever you have the hardware for it. Set `LLM_ENABLED` and `LLM_BASE_URL` in `.env`:
+
+| Mode | `LLM_ENABLED` | `LLM_BASE_URL` | Start with |
+|------|---------------|----------------|-----------|
+| Off (default) | `false` | ignored | `docker compose up -d` |
+| Query a remote host | `true` | `http://<host>:8000/v1` | `docker compose up -d` (bot side) |
+| Bot and model together | `true` | `http://vllm:8000/v1` (default) | `docker compose --profile llm up -d` |
+
+For the remote mode, run just the model on the other machine with `docker compose --profile llm up -d vllm`.
+
+**Security**: vLLM has no auth by default and ignores `LLM_API_KEY` unless it is started with `--api-key`. Publishing port `8000` to anything wider than a trusted LAN/VPN gives anyone free use of the machine. Keep the two machines on the same LAN (or a Tailscale/WireGuard network), or set a secret in `LLM_API_KEY` and add `--api-key <secret>` to the `vllm serve` command.
+
+**Running the model locally**: the bundled `vllm` service needs an NVIDIA GPU and the container toolkit (Docker passes the GPU through via the `deploy.resources` reservation in the compose file). Weights are cached in the `hf-cache` volume, so a restart does not re-download them. On a DGX Spark specifically: it is aarch64 (GB10), so `vllm` must use NVIDIA's arm64 build (check [NGC](https://catalog.ngc.nvidia.com) for the current tag and update `docker-compose.yml` if needed; the other images are already multi-arch), and DGX OS ships the container toolkit so the GPU reservation works out of the box.
 
 ## CI
 

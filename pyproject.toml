@@ -1,7 +1,7 @@
 [project]
 name = "scarlett"
 version = "0.2.0"
-description = "Discord bot with a local LLM personality, timestamp coordination, and music playback"
+description = "Extensible Discord utility bot (timestamp coordination, music) with an optional local LLM personality"
 requires-python = ">=3.11"
 dependencies = [
     "discord.py[voice]>=2.4",

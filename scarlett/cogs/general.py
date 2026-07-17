@@ -20,6 +20,14 @@ class General(commands.Cog):
             color=discord.Color.blurple(),
         )
         embed.add_field(
+            name="Timestamps",
+            value=(
+                "`/tz` to set your timezone, then I'll turn times like "
+                '"friday at 7pm" into everyone\'s own local time.'
+            ),
+            inline=False,
+        )
+        embed.add_field(
             name="Music",
             value=(
                 "`/play` a link or a search and I'll join your voice channel\n"
@@ -27,14 +35,6 @@ class General(commands.Cog):
                 "`/queue` · `/nowplaying`\n"
                 "Sources: YouTube, SoundCloud, Bandcamp, Twitch, Vimeo, and "
                 "direct audio or radio links. Plain searches use YouTube."
-            ),
-            inline=False,
-        )
-        embed.add_field(
-            name="Timestamps",
-            value=(
-                "`/tz` to set your timezone, then I'll turn times like "
-                '"friday at 7pm" into everyone\'s own local time.'
             ),
             inline=False,
         )

@@ -18,9 +18,10 @@ class Settings(BaseSettings):
     def _blank_is_none(cls, v):
         return None if v == "" else v
 
-    # when false the bot runs without any LLM: the chat cog is not loaded and
-    # she stays silent, while timestamps and music keep working
-    llm_enabled: bool = True
+    # off by default: Scarlett runs as a plain utility bot (timestamps, music)
+    # and the chat cog is not loaded. flip to true to opt into the LLM
+    # personality; timestamps and music work either way
+    llm_enabled: bool = False
     llm_base_url: str = "http://vllm:8000/v1"
     llm_model: str = ""
     llm_api_key: str = "not-needed"
