@@ -32,12 +32,13 @@ class Timestamps(commands.Cog):
         if message.author.bot or not message.content:
             return
         # cheap gate so most messages never touch the db
-        if "<t:" in message.content or not TIME_OF_DAY.search(message.content):
+        match = TIME_OF_DAY.search(message.content)
+        if "<t:" in message.content or not match:
             return
 
         tz_name = await self.bot.db.get_timezone(message.author.id)
         if tz_name is None:
-            await self._prompt_for_timezone(message)
+            await self._prompt_for_timezone(message, match.group(0))
             return
 
         matches = extract_times(message.content, ZoneInfo(tz_name))
@@ -53,7 +54,9 @@ class Timestamps(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    async def _prompt_for_timezone(self, message: discord.Message) -> None:
+    async def _prompt_for_timezone(
+        self, message: discord.Message, phrase: str
+    ) -> None:
         now = time.monotonic()
         last = self.last_prompted.get(message.author.id)
         if last is not None and now - last < PROMPT_COOLDOWN:
@@ -61,8 +64,8 @@ class Timestamps(commands.Cog):
         self.last_prompted[message.author.id] = now
         # reply() pings the author by default, which is wanted here
         await message.reply(
-            "That looks like a time! I don't know your timezone yet though. "
-            "Set it with /tz and I'll sort the conversions for everyone."
+            f'"{phrase}" looks like a time! I don\'t know your timezone yet '
+            "though. Set it with /tz and I'll sort the conversions for everyone."
         )
 
     @app_commands.command(
