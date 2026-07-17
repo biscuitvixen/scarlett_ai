@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          # cache pip downloads keyed on the dependency declarations so
+          # unchanged deps are restored instead of refetched every run
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # installs the runtime deps plus the dev extra (pytest)
+      - run: pip install .[dev]
+
+      - run: pytest
