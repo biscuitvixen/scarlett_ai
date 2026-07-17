@@ -94,7 +94,9 @@ def test_known_timezone_replies_with_conversion():
     msg.reply.assert_called_once()
     text = reply_text(msg)
     assert "<t:" in text
-    assert '"7pm"' in text
+    # the reply quotes the matched phrase, which dateparser returns with its
+    # surrounding words ("at 7pm tomorrow"), not just the clock time
+    assert '"' in text and "7pm" in text
 
 
 def test_gate_hit_with_nothing_to_convert_stays_quiet():
