@@ -112,6 +112,14 @@ def extract_times(
                 "RETURN_AS_TIMEZONE_AWARE": True,
                 "TIMEZONE": str(tz),
                 "RELATIVE_BASE": base,
+                # search_dates runs full-text language detection first and
+                # drops the message outright if it can't name a language.
+                # A message that is only a time ("7pm", "21:00?") has no
+                # detectable language, and the languages= list above is only
+                # consulted as a fallback when it holds more than one entry,
+                # so those never reached the parser at all. This is the
+                # documented way to say "assume English when unsure".
+                "DEFAULT_LANGUAGES": ["en"],
             },
         )
     else:

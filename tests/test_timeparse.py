@@ -31,6 +31,26 @@ def test_24h_tomorrow():
     assert int(m.when.timestamp()) == unix(2026, 7, 2, 19, 30)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "19:00",
+        "19:00?",
+        "19:00!",
+        "19:00?!",
+        "19:00 :P",
+        "7pm",
+        "7pm?",
+        "7:00pm!",
+    ],
+)
+def test_bare_time_alone_in_message(text):
+    # a message that is nothing but the time, which is how people actually
+    # answer "what time?" in chat
+    (m,) = extract_times(text, LONDON, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 19, 0)
+
+
 def test_relative_hours():
     (m,) = extract_times("starting in 3 hours", LONDON, NOW)
     assert int(m.when.timestamp()) == int(NOW.timestamp()) + 3 * 3600
