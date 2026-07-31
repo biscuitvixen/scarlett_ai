@@ -1,12 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from scarlett.timeparse import extract_times
+from scarlett.timeparse import explicit_zone, extract_times
 
 LONDON = ZoneInfo("Europe/London")
 CHICAGO = ZoneInfo("America/Chicago")
+PARIS = ZoneInfo("Europe/Paris")
 
 # a Wednesday afternoon, BST
 NOW = datetime(2026, 7, 1, 14, 0, tzinfo=LONDON)
@@ -141,6 +142,81 @@ def test_multiple_capped_and_deduped():
     assert len(matches) == 3
     stamps = [int(m.when.timestamp()) for m in matches]
     assert len(set(stamps)) == 3
+
+
+def test_stated_zone_without_a_registered_one():
+    # nobody knows where the author is, but the message says so itself
+    (m,) = extract_times("22:00 CET works for me", None, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 22, 0, tz=PARIS)
+
+
+def test_no_zone_anywhere_stays_quiet():
+    assert extract_times("22:00 works for me", None, NOW) == []
+
+
+def test_stated_zone_is_read_as_wall_clock():
+    # July, so Paris is on CEST. Someone typing CET means the clock on their
+    # wall, not a literal UTC+1, which would land this an hour early
+    (m,) = extract_times("22:00 CET", None, NOW)
+    assert m.when.utcoffset() == timedelta(hours=2)
+
+
+def test_stated_zone_beats_the_registered_one():
+    # author registered as Chicago, but they said CET
+    (m,) = extract_times("22:00 CET", CHICAGO, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 22, 0, tz=PARIS)
+
+
+def test_stated_zone_covers_the_bare_times_beside_it():
+    text = "22:00 CET is standard, but 21:00 was better for a few"
+    stamps = {int(m.when.timestamp()) for m in extract_times(text, None, NOW)}
+    assert stamps == {
+        unix(2026, 7, 1, 22, 0, tz=PARIS),
+        unix(2026, 7, 1, 21, 0, tz=PARIS),
+    }
+
+
+def test_numeric_offset_zone():
+    (m,) = extract_times("raid at 19:00 UTC+2", None, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 17, 0, tz=ZoneInfo("UTC"))
+
+
+def test_utc_is_literal():
+    (m,) = extract_times("19:00 UTC", None, NOW)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 19, 0, tz=ZoneInfo("UTC"))
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("22:00 CET", "Europe/Paris"),
+        ("22:00 (CET)", "Europe/Paris"),
+        ("8pm est", "America/New_York"),
+        ("the 19:00 PT stream", "America/Los_Angeles"),
+        ("19:00 UTC", "UTC"),
+    ],
+)
+def test_explicit_zone_found(text, expected):
+    assert explicit_zone(text) == ZoneInfo(expected)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "22:00 tomorrow",
+        # French "and", which is why lowercase two letter names are ignored
+        "on se voit a 19:00 et 20:00",
+        # a zone far from any time is talking about something else
+        "19:00 works, and my CET train was late",
+        # not a zone we can pin down, India, Israel and Ireland all use IST
+        "19:00 IST",
+        # TIME_OF_DAY needs a non-word character after the time, so an
+        # unspaced zone is never seen at all. Documenting, not endorsing
+        "22:00CET",
+    ],
+)
+def test_explicit_zone_not_found(text):
+    assert explicit_zone(text) is None
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..timeparse import TIME_OF_DAY, extract_times
+from ..timeparse import TIME_OF_DAY, explicit_zone, extract_times
 
 # seconds between "set your timezone" nags per user
 PROMPT_COOLDOWN = 3600
@@ -36,12 +36,17 @@ class Timestamps(commands.Cog):
         if "<t:" in message.content or not match:
             return
 
-        tz_name = await self.bot.db.get_timezone(message.author.id)
-        if tz_name is None:
-            await self._prompt_for_timezone(message, match.group(0))
-            return
+        # a message that names its own zone ("22:00 CET") reads the same for
+        # everyone, so it converts without knowing who wrote it
+        zone = explicit_zone(message.content)
+        if zone is None:
+            tz_name = await self.bot.db.get_timezone(message.author.id)
+            if tz_name is None:
+                await self._prompt_for_timezone(message, match.group(0))
+                return
+            zone = ZoneInfo(tz_name)
 
-        matches = extract_times(message.content, ZoneInfo(tz_name))
+        matches = extract_times(message.content, zone)
         if not matches:
             return
         lines = []

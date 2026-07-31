@@ -10,7 +10,7 @@ a clock time kills most false positives (prices, scores, "may", "sat").
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
@@ -50,6 +50,62 @@ RELATIVE_IN = re.compile(
     r"\bin\s+(\d+)\s*(minutes?|mins?|hours?|hrs?)\b", re.IGNORECASE
 )
 
+# Timezones people actually type next to a time in chat, mapped to an IANA
+# zone rather than the offset the abbreviation literally names. Someone
+# writing "22:00 CET" in July means 22:00 on a Paris wall clock, even though
+# CET is strictly UTC+1 and Paris is on CEST by then. dateparser reads the
+# abbreviation literally and lands an hour early, which is worse than saying
+# nothing at all. UTC and GMT are the exception, they mean the offset.
+#
+# Deliberately missing: IST (India, Israel and Ireland all claim it) and
+# anything else where guessing wrong is likely. CST is read as Chicago,
+# which is the common usage here but not China Standard Time.
+ZONE_ALIASES = {
+    "UTC": "UTC",
+    "GMT": "UTC",
+    "BST": "Europe/London",
+    "CET": "Europe/Paris",
+    "CEST": "Europe/Paris",
+    "WET": "Europe/Lisbon",
+    "WEST": "Europe/Lisbon",
+    "EET": "Europe/Athens",
+    "EEST": "Europe/Athens",
+    "MSK": "Europe/Moscow",
+    "ET": "America/New_York",
+    "EST": "America/New_York",
+    "EDT": "America/New_York",
+    "CT": "America/Chicago",
+    "CST": "America/Chicago",
+    "CDT": "America/Chicago",
+    "MT": "America/Denver",
+    "MST": "America/Denver",
+    "MDT": "America/Denver",
+    "PT": "America/Los_Angeles",
+    "PST": "America/Los_Angeles",
+    "PDT": "America/Los_Angeles",
+    "AEST": "Australia/Sydney",
+    "AEDT": "Australia/Sydney",
+    "JST": "Asia/Tokyo",
+    "KST": "Asia/Seoul",
+    "NZST": "Pacific/Auckland",
+    "NZDT": "Pacific/Auckland",
+}
+
+# Three letters and up are distinctive enough to read in any case ("8pm est").
+# The two letter ones are ordinary words elsewhere, and "19:00 et 20:00" is
+# French for "19:00 and 20:00", so those only count shouted.
+_LONG = sorted((z for z in ZONE_ALIASES if len(z) > 2), key=len, reverse=True)
+_SHORT = sorted(z for z in ZONE_ALIASES if len(z) == 2)
+ZONE_NAME = re.compile(
+    r"\b(?:(?i:" + "|".join(_LONG) + r")|" + "|".join(_SHORT) + r")\b"
+)
+# "19:00 UTC+2", "8pm GMT-5", "14:00 UTC+05:30"
+ZONE_OFFSET = re.compile(r"\b(?:UTC|GMT)\s*([+-])\s*([01]?\d)(?::?([0-5]\d))?\b")
+
+# how far from a time a zone name may sit and still be describing it, enough
+# for "22:00 CET" and "22:00 (CET)" but not a stray "PT" later in a sentence
+ZONE_NEAR = 4
+
 MAX_MATCHES = 3
 
 # anything closer than this is happening "now-ish" for everyone in the
@@ -57,10 +113,46 @@ MAX_MATCHES = 3
 MIN_LEAD = timedelta(hours=1)
 
 
+def explicit_zone(text: str) -> tzinfo | None:
+    """Return the timezone a message states for its own times, if any.
+
+    A message carrying its own zone ("22:00 CET") is readable by everyone
+    without knowing who wrote it, so the caller can convert it whether or
+    not the author has registered a timezone. Only a zone sitting next to a
+    time counts, so "the 19:00 PT stream" resolves but "I ride the CET line"
+    does not.
+    """
+    spans = [m.span() for m in TIME_OF_DAY.finditer(text)]
+    if not spans:
+        return None
+
+    def beside_a_time(start: int, end: int) -> bool:
+        return any(
+            start - t_end <= ZONE_NEAR and t_start - end <= ZONE_NEAR
+            for t_start, t_end in spans
+        )
+
+    # offsets first, "UTC+2" would otherwise match the bare "UTC" alias
+    for m in ZONE_OFFSET.finditer(text):
+        if beside_a_time(*m.span()):
+            sign, hours, minutes = m.groups()
+            delta = timedelta(hours=int(hours), minutes=int(minutes or 0))
+            return timezone(-delta if sign == "-" else delta)
+
+    for m in ZONE_NAME.finditer(text):
+        if beside_a_time(*m.span()):
+            return ZoneInfo(ZONE_ALIASES[m.group(0).upper()])
+    return None
+
+
 def extract_times(
-    text: str, tz: ZoneInfo, now: datetime | None = None
+    text: str, tz: tzinfo | None, now: datetime | None = None
 ) -> list[TimeMatch]:
     """Return up to MAX_MATCHES concrete times found in text.
+
+    tz is the zone the author's bare times are read in, and may be None
+    when their timezone is unknown: a message that states its own zone
+    still resolves, anything else comes back empty.
 
     Times less than MIN_LEAD ahead of now are dropped, close enough that
     a conversion helps nobody.
@@ -73,8 +165,20 @@ def extract_times(
     if not TIME_OF_DAY.search(text):
         return []
 
+    # a zone the author spelled out beats the one they registered, that is
+    # the whole point of typing it
+    stated = explicit_zone(text)
+    tz = stated or tz
+    if tz is None:
+        return []
+
     text = COMPACT_24H_AT.sub(r"\g<1>\g<2>:\g<3>", text)
     text = COMPACT_24H_HRS.sub(r"\g<1>:\g<2>", text)
+    if stated is not None:
+        # blank the zone so dateparser doesn't apply the abbreviation's
+        # literal offset on top of the zone it already resolved to
+        text = ZONE_OFFSET.sub(lambda m: " " * len(m.group(0)), text)
+        text = ZONE_NAME.sub(lambda m: " " * len(m.group(0)), text)
 
     if now is None:
         now = datetime.now(tz)
