@@ -57,8 +57,16 @@ def test_relative_hours():
 
 
 def test_relative_minutes_too_soon():
-    # under the 2 hour minimum, everyone can count to 45
+    # under the minimum lead, everyone can count to 45
     assert extract_times("starting in 45 minutes", LONDON, NOW) == []
+
+
+def test_time_ninety_minutes_out_converts():
+    # the evening-planning case: someone says 21:00 at 19:30 and the
+    # timezones in the room are still an hour apart
+    evening = datetime(2026, 7, 1, 19, 30, tzinfo=LONDON)
+    (m,) = extract_times("21:00?", LONDON, evening)
+    assert int(m.when.timestamp()) == unix(2026, 7, 1, 21, 0)
 
 
 def test_compact_24h_with_at():

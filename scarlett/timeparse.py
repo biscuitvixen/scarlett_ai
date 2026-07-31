@@ -54,7 +54,7 @@ MAX_MATCHES = 3
 
 # anything closer than this is happening "now-ish" for everyone in the
 # conversation, converting it just adds noise
-MIN_LEAD = timedelta(hours=2)
+MIN_LEAD = timedelta(hours=1)
 
 
 def extract_times(
