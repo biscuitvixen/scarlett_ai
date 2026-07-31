@@ -90,9 +90,15 @@ class Timestamps(commands.Cog):
             "though. Set it with /tz and I'll sort the conversions for everyone."
         )
 
-    @app_commands.command(description="Convert a time for everyone, right now")
+    # named around the time module this cog already imports, the slash
+    # command is still /time
+    @app_commands.command(
+        name="time", description="Convert a time for everyone, right now"
+    )
     @app_commands.describe(when="A time, e.g. 21:00, 8pm friday, or 22:00 CET")
-    async def time(self, interaction: discord.Interaction, when: str) -> None:
+    async def convert_time(
+        self, interaction: discord.Interaction, when: str
+    ) -> None:
         stated = explicit_zone(when)
         if stated is None:
             tz_name = await self.bot.db.get_timezone(interaction.user.id)
