@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     # off by default: Scarlett runs as a plain utility bot (timestamps, music)
     # and the chat cog is not loaded. flip to true to opt into the LLM
     # personality; timestamps and music work either way
+    # INFO says what she did with each message; DEBUG adds the step by step
+    # of the time parsing, which is where a quiet failure usually hides.
+    # Set LOG_LEVEL=DEBUG in .env and restart, no rebuild needed
+    log_level: str = "INFO"
+
     llm_enabled: bool = False
     llm_base_url: str = "http://vllm:8000/v1"
     llm_model: str = ""

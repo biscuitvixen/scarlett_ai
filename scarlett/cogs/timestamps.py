@@ -6,6 +6,7 @@ the whole server. Parsing lives in scarlett.timeparse; this cog handles
 the Discord side and the per-user timezone registry.
 """
 
+import logging
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
@@ -15,6 +16,8 @@ from discord import app_commands
 from discord.ext import commands
 
 from ..timeparse import TIME_OF_DAY, TimeMatch, explicit_zone, extract_times
+
+log = logging.getLogger(__name__)
 
 # seconds between "set your timezone" nags per user
 PROMPT_COOLDOWN = 3600
@@ -57,6 +60,12 @@ class Timestamps(commands.Cog):
 
         # a message that names its own zone ("22:00 CET") reads the same for
         # everyone, so it converts without knowing who wrote it
+        # past the gate is where the interesting decisions start, so from
+        # here on every path says what it did. A message reaching this point
+        # and producing no reply is the shape of the fault that is hard to
+        # see from outside: nothing is wrong, she just says nothing
+        log.info("time-ish message from %s: %r", message.author.id, message.content)
+
         stated = explicit_zone(message.content)
         if stated is None:
             tz_name = await self.bot.db.get_timezone(message.author.id)
@@ -69,7 +78,19 @@ class Timestamps(commands.Cog):
 
         matches = extract_times(message.content, zone)
         if not matches:
+            # handlers run as concurrent tasks, so two people talking at once
+            # interleave these lines. Every one of them names the author
+            log.info(
+                "nothing convertible for %s, staying quiet "
+                "(raise LOG_LEVEL to DEBUG for the reason)",
+                message.author.id,
+            )
             return
+        log.info(
+            "converting %s for %s",
+            [m.phrase for m in matches],
+            message.author.id,
+        )
         await message.reply(
             _render(matches),
             mention_author=False,
@@ -82,8 +103,14 @@ class Timestamps(commands.Cog):
         now = time.monotonic()
         last = self.last_prompted.get(message.author.id)
         if last is not None and now - last < PROMPT_COOLDOWN:
+            log.info(
+                "%s has no timezone set, already nagged %.0fs ago",
+                message.author.id,
+                now - last,
+            )
             return
         self.last_prompted[message.author.id] = now
+        log.info("%s has no timezone set, asking them to /tz", message.author.id)
         # reply() pings the author by default, which is wanted here
         await message.reply(
             f'"{phrase}" looks like a time! I don\'t know your timezone yet '
@@ -99,10 +126,12 @@ class Timestamps(commands.Cog):
     async def convert_time(
         self, interaction: discord.Interaction, when: str
     ) -> None:
+        log.info("/time from %s: %r", interaction.user.id, when)
         stated = explicit_zone(when)
         if stated is None:
             tz_name = await self.bot.db.get_timezone(interaction.user.id)
             if tz_name is None:
+                log.info("no timezone on file for %s", interaction.user.id)
                 await interaction.response.send_message(
                     "I don't know your timezone yet, so I can't place that. "
                     "Set it with /tz, or say the zone outright like "
@@ -121,6 +150,7 @@ class Timestamps(commands.Cog):
             max_matches=ASKED_MAX_MATCHES,
         )
         if not matches:
+            log.info("could not place %r for %s", when, interaction.user.id)
             # quietly, so a typo doesn't land in the channel
             await interaction.response.send_message(
                 f"I couldn't find a time in '{when}'. Something like 21:00, "
@@ -138,6 +168,11 @@ class Timestamps(commands.Cog):
     @app_commands.describe(timezone="IANA timezone name, e.g. Europe/London")
     async def tz(self, interaction: discord.Interaction, timezone: str) -> None:
         if timezone not in self.zone_set:
+            log.info(
+                "%s tried to set %r, not an IANA zone",
+                interaction.user.id,
+                timezone,
+            )
             await interaction.response.send_message(
                 f"Hmm, '{timezone}' isn't an IANA timezone name. "
                 "Try the autocomplete, something like Europe/London.",
@@ -145,6 +180,7 @@ class Timestamps(commands.Cog):
             )
             return
         await self.bot.db.set_timezone(interaction.user.id, timezone)
+        log.info("%s registered as %s", interaction.user.id, timezone)
         local = datetime.now(ZoneInfo(timezone)).strftime("%H:%M")
         await interaction.response.send_message(
             f"All set, your timezone's {timezone}. "

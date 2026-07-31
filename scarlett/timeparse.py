@@ -9,12 +9,19 @@ a clock time kills most false positives (prices, scores, "may", "sat").
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import NamedTuple
 from zoneinfo import ZoneInfo
 
 from dateparser.search import search_dates
+
+# Everything here logs at DEBUG. Dropping a phrase is the normal outcome,
+# not a fault, so it must not fill the log at the default level, but when
+# she has gone quiet and nobody knows why this is the trail that says which
+# step let the message go. Raise LOG_LEVEL to DEBUG to see it.
+log = logging.getLogger(__name__)
 
 
 class TimeMatch(NamedTuple):
@@ -122,6 +129,18 @@ MAX_MATCHES = 3
 MIN_LEAD = timedelta(hours=1)
 
 
+def _brief(pairs) -> str:
+    """Render (phrase, datetime) pairs short enough to read in a log line.
+
+    A raw list of datetimes carries its tzinfo repr with it and wraps three
+    times in a terminal, which is no use when you are scanning for the one
+    line that explains the silence.
+    """
+    return (
+        ", ".join(f"{p!r} -> {w:%Y-%m-%d %H:%M %Z}" for p, w in pairs) or "nothing"
+    )
+
+
 def _carries_a_date(phrase: str) -> bool:
     """Say whether a phrase dates itself, beyond naming a time of day.
 
@@ -160,7 +179,12 @@ def _next_occurrence(when: datetime, now: datetime, tz: tzinfo) -> datetime:
     )
     if stamp < local:
         stamp += timedelta(days=1)
-    return stamp.replace(tzinfo=tz)
+    placed = stamp.replace(tzinfo=tz)
+    if placed.date() != when.date():
+        # the parser and this function disagreeing about the day is the
+        # month-end fault above, so say when the workaround earns its keep
+        log.debug("placed bare time on %s, dateparser said %s", placed, when)
+    return placed
 
 
 def explicit_zone(text: str) -> StatedZone | None:
@@ -220,8 +244,10 @@ def extract_times(
     mainly so tests can pin it. Defaults to the current time.
     """
     if "<t:" in text:
+        log.debug("already has a timestamp, leaving it alone: %r", text)
         return []
     if not TIME_OF_DAY.search(text):
+        log.debug("no time of day in %r", text)
         return []
 
     # a zone the author spelled out beats the one they registered, that is
@@ -229,7 +255,14 @@ def extract_times(
     stated = explicit_zone(text)
     tz = stated.tz if stated else tz
     if tz is None:
+        log.debug("no zone stated and none registered, cannot place %r", text)
         return []
+    log.debug(
+        "reading %r in %s%s",
+        text,
+        tz,
+        f", zone stated as {stated.label!r}" if stated else "",
+    )
 
     text = COMPACT_24H_AT.sub(r"\g<1>\g<2>:\g<3>", text)
     text = COMPACT_24H_HRS.sub(r"\g<1>:\g<2>", text)
@@ -295,6 +328,8 @@ def extract_times(
         if delta >= min_lead and unix not in seen and len(matches) < max_matches:
             seen.add(unix)
             matches.append(TimeMatch(m.group(0), when))
+        else:
+            log.debug("dropped relative %r, %s away", m.group(0), delta)
         # blank the span so dateparser doesn't parse it again
         return " " * len(m.group(0))
 
@@ -325,12 +360,17 @@ def extract_times(
         )
     else:
         found = None
+    # the parser's raw answer, before any of our filtering. This is the line
+    # that says whether she went quiet because nothing was said or because
+    # dateparser read what was said wrongly
+    log.debug("dateparser read %r as %s", text, _brief(found or []))
 
     # search_dates returns substrings in the order they appear, so walking a
     # cursor along the text locates each one well enough to find its zone
     cursor = 0
     for phrase, when in found or []:
         if len(matches) == max_matches:
+            log.debug("hit the %d match cap, ignoring the rest", max_matches)
             break
         phrase = phrase.strip()
         start = text.find(phrase, cursor)
@@ -339,16 +379,26 @@ def extract_times(
         # search_dates happily matches bare numbers and weekdays,
         # only keep phrases that carry an actual time of day
         if not TIME_OF_DAY.search(phrase):
+            log.debug("dropped %r, no time of day in it", phrase)
             continue
         when = when.astimezone(tz)
         if not _carries_a_date(phrase):
             when = _next_occurrence(when, now, tz)
         if when - now < min_lead:
+            log.debug(
+                "dropped %r, %s is only %s from now, under the %s lead",
+                phrase,
+                when,
+                when - now,
+                min_lead,
+            )
             continue
         unix = int(when.timestamp())
         if unix in seen:
+            log.debug("dropped %r, %s already matched", phrase, when)
             continue
         seen.add(unix)
         said, zone = restate(phrase, start)
         matches.append(TimeMatch(said, when, zone))
+    log.debug("kept %s", _brief((m.phrase, m.when) for m in matches))
     return matches
