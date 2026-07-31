@@ -4,7 +4,7 @@ A friendly, growing utility bot for Discord. Right now she handles cross-timezon
 
 Features:
 
-- **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted).
+- **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted), or say the zone in the message itself ("22:00 CET"), which works for everyone reading whether or not the author has registered one. `/time <phrase>` converts on demand, with none of the quiet-hours limits the listener applies.
 - **Music**: plays audio in voice channels via Lavalink. `/play` takes a link or a search term; `/skip`, `/stop`, `/pause`, `/volume`, `/shuffle`, `/loop`, `/queue` and `/nowplaying` round it out. She manages a queue and leaves on her own once the channel empties or nothing has played for a while.
 - **Personality chat** (optional, off by default): if you want it, she can chat back in her own voice. This is the one feature that needs an extra service, so it lives in its own section at the end; everything above works without it.
 

@@ -7,17 +7,36 @@ the Discord side and the per-user timezone registry.
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, available_timezones
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from ..timeparse import TIME_OF_DAY, explicit_zone, extract_times
+from ..timeparse import TIME_OF_DAY, TimeMatch, explicit_zone, extract_times
 
 # seconds between "set your timezone" nags per user
 PROMPT_COOLDOWN = 3600
+
+# /time was asked a direct question, so the quiet-hour rule that keeps her
+# from butting in over an imminent time does not apply
+ASKED_MIN_LEAD = timedelta(0)
+
+# the reply still has to fit in a Discord message and stay readable, so the
+# cap is raised rather than lifted
+ASKED_MAX_MATCHES = 10
+
+
+def _render(matches: list[TimeMatch]) -> str:
+    lines = []
+    for m in matches:
+        unix = int(m.when.timestamp())
+        # m.zone is set when a bare time borrowed a zone stated elsewhere in
+        # the message, which is a guess worth saying out loud
+        said = f" in {m.zone}" if m.zone else ""
+        lines.append(f'"{m.phrase}"{said} is <t:{unix}:F> (<t:{unix}:R>)')
+    return "\n".join(lines)
 
 
 class Timestamps(commands.Cog):
@@ -51,15 +70,8 @@ class Timestamps(commands.Cog):
         matches = extract_times(message.content, zone)
         if not matches:
             return
-        lines = []
-        for m in matches:
-            unix = int(m.when.timestamp())
-            # m.zone is set when a bare time borrowed a zone stated elsewhere
-            # in the message, which is a guess worth saying out loud
-            said = f" in {m.zone}" if m.zone else ""
-            lines.append(f'"{m.phrase}"{said} is <t:{unix}:F> (<t:{unix}:R>)')
         await message.reply(
-            "\n".join(lines),
+            _render(matches),
             mention_author=False,
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -76,6 +88,42 @@ class Timestamps(commands.Cog):
         await message.reply(
             f'"{phrase}" looks like a time! I don\'t know your timezone yet '
             "though. Set it with /tz and I'll sort the conversions for everyone."
+        )
+
+    @app_commands.command(description="Convert a time for everyone, right now")
+    @app_commands.describe(when="A time, e.g. 21:00, 8pm friday, or 22:00 CET")
+    async def time(self, interaction: discord.Interaction, when: str) -> None:
+        stated = explicit_zone(when)
+        if stated is None:
+            tz_name = await self.bot.db.get_timezone(interaction.user.id)
+            if tz_name is None:
+                await interaction.response.send_message(
+                    "I don't know your timezone yet, so I can't place that. "
+                    "Set it with /tz, or say the zone outright like "
+                    "'22:00 CET' and I'll take it from there.",
+                    ephemeral=True,
+                )
+                return
+            zone = ZoneInfo(tz_name)
+        else:
+            zone = stated.tz
+
+        matches = extract_times(
+            when,
+            zone,
+            min_lead=ASKED_MIN_LEAD,
+            max_matches=ASKED_MAX_MATCHES,
+        )
+        if not matches:
+            # quietly, so a typo doesn't land in the channel
+            await interaction.response.send_message(
+                f"I couldn't find a time in '{when}'. Something like 21:00, "
+                "8pm friday or 22:00 CET works.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            _render(matches), allowed_mentions=discord.AllowedMentions.none()
         )
 
     @app_commands.command(

@@ -157,16 +157,23 @@ def explicit_zone(text: str) -> StatedZone | None:
 
 
 def extract_times(
-    text: str, tz: tzinfo | None, now: datetime | None = None
+    text: str,
+    tz: tzinfo | None,
+    now: datetime | None = None,
+    *,
+    min_lead: timedelta = MIN_LEAD,
+    max_matches: int = MAX_MATCHES,
 ) -> list[TimeMatch]:
-    """Return up to MAX_MATCHES concrete times found in text.
+    """Return up to max_matches concrete times found in text.
 
     tz is the zone the author's bare times are read in, and may be None
     when their timezone is unknown: a message that states its own zone
     still resolves, anything else comes back empty.
 
-    Times less than MIN_LEAD ahead of now are dropped, close enough that
-    a conversion helps nobody.
+    Times less than min_lead ahead of now are dropped, close enough that
+    a conversion helps nobody. Both limits exist because reading along in
+    a channel is unsolicited; someone who asked outright should pass a
+    zero min_lead, they know what they want converted.
 
     now anchors relative phrases ("in 45 minutes") and future preference,
     mainly so tests can pin it. Defaults to the current time.
@@ -244,7 +251,7 @@ def extract_times(
         )
         when = now + delta
         unix = int(when.timestamp())
-        if delta >= MIN_LEAD and unix not in seen and len(matches) < MAX_MATCHES:
+        if delta >= min_lead and unix not in seen and len(matches) < max_matches:
             seen.add(unix)
             matches.append(TimeMatch(m.group(0), when))
         # blank the span so dateparser doesn't parse it again
@@ -282,7 +289,7 @@ def extract_times(
     # cursor along the text locates each one well enough to find its zone
     cursor = 0
     for phrase, when in found or []:
-        if len(matches) == MAX_MATCHES:
+        if len(matches) == max_matches:
             break
         phrase = phrase.strip()
         start = text.find(phrase, cursor)
@@ -293,7 +300,7 @@ def extract_times(
         if not TIME_OF_DAY.search(phrase):
             continue
         when = when.astimezone(tz)
-        if when - now < MIN_LEAD:
+        if when - now < min_lead:
             continue
         unix = int(when.timestamp())
         if unix in seen:

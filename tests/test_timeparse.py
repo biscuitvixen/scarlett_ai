@@ -113,6 +113,28 @@ def test_imminent_time_skipped():
     assert extract_times("social will start at 21:00", LONDON, late) == []
 
 
+def test_zero_min_lead_converts_an_imminent_time():
+    # what /time passes: asked outright, so the quiet-hours rule is off
+    late = datetime(2026, 7, 11, 20, 55, tzinfo=LONDON)
+    (m,) = extract_times(
+        "21:00", LONDON, late, min_lead=timedelta(0)
+    )
+    assert int(m.when.timestamp()) == unix(2026, 7, 11, 21, 0)
+
+
+def test_zero_min_lead_still_prefers_the_future():
+    # 5 minutes past, so it belongs to tomorrow, not five minutes ago
+    late = datetime(2026, 7, 11, 21, 5, tzinfo=LONDON)
+    (m,) = extract_times("21:00", LONDON, late, min_lead=timedelta(0))
+    assert int(m.when.timestamp()) == unix(2026, 7, 12, 21, 0)
+
+
+def test_max_matches_override():
+    text = "either 6pm, 7pm, 8pm or 9pm"
+    assert len(extract_times(text, LONDON, NOW)) == 3
+    assert len(extract_times(text, LONDON, NOW, max_matches=10)) == 4
+
+
 def test_relative_and_absolute_mixed():
     text = "starting in 3 hours, so 17:00"
     matches = extract_times(text, LONDON, NOW)

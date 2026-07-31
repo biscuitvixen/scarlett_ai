@@ -23,7 +23,9 @@ class General(commands.Cog):
             name="Timestamps",
             value=(
                 "`/tz` to set your timezone, then I'll turn times like "
-                '"friday at 7pm" into everyone\'s own local time.'
+                '"friday at 7pm" into everyone\'s own local time. '
+                "`/time 21:00` if you'd rather ask me outright, and saying "
+                'the zone yourself ("22:00 CET") works without either.'
             ),
             inline=False,
         )
