@@ -20,6 +20,15 @@ from dateparser.search import search_dates
 class TimeMatch(NamedTuple):
     phrase: str
     when: datetime  # timezone aware
+    # the zone the author typed, when the phrase does not name it itself.
+    # Callers should say it out loud: a bare "21:00" read in someone else's
+    # stated CET is a guess, and a guess should be visible
+    zone: str | None = None
+
+
+class StatedZone(NamedTuple):
+    label: str  # as typed, "CET" or "UTC+2"
+    tz: tzinfo
 
 
 TIME_OF_DAY = re.compile(
@@ -113,7 +122,7 @@ MAX_MATCHES = 3
 MIN_LEAD = timedelta(hours=1)
 
 
-def explicit_zone(text: str) -> tzinfo | None:
+def explicit_zone(text: str) -> StatedZone | None:
     """Return the timezone a message states for its own times, if any.
 
     A message carrying its own zone ("22:00 CET") is readable by everyone
@@ -137,11 +146,13 @@ def explicit_zone(text: str) -> tzinfo | None:
         if beside_a_time(*m.span()):
             sign, hours, minutes = m.groups()
             delta = timedelta(hours=int(hours), minutes=int(minutes or 0))
-            return timezone(-delta if sign == "-" else delta)
+            return StatedZone(
+                m.group(0), timezone(-delta if sign == "-" else delta)
+            )
 
     for m in ZONE_NAME.finditer(text):
         if beside_a_time(*m.span()):
-            return ZoneInfo(ZONE_ALIASES[m.group(0).upper()])
+            return StatedZone(m.group(0), ZoneInfo(ZONE_ALIASES[m.group(0).upper()]))
     return None
 
 
@@ -168,17 +179,55 @@ def extract_times(
     # a zone the author spelled out beats the one they registered, that is
     # the whole point of typing it
     stated = explicit_zone(text)
-    tz = stated or tz
+    tz = stated.tz if stated else tz
     if tz is None:
         return []
 
     text = COMPACT_24H_AT.sub(r"\g<1>\g<2>:\g<3>", text)
     text = COMPACT_24H_HRS.sub(r"\g<1>:\g<2>", text)
+
+    spoken = text  # what the author wrote, before anything is blanked out
+    zone_spans: list[tuple[int, int]] = []
     if stated is not None:
         # blank the zone so dateparser doesn't apply the abbreviation's
-        # literal offset on top of the zone it already resolved to
-        text = ZONE_OFFSET.sub(lambda m: " " * len(m.group(0)), text)
-        text = ZONE_NAME.sub(lambda m: " " * len(m.group(0)), text)
+        # literal offset on top of the zone it already resolved to. Blanking
+        # keeps the length, so these spans stay valid against spoken and the
+        # token can be put back on the phrase we report
+        def blank_zone(m: re.Match) -> str:
+            zone_spans.append(m.span())
+            return " " * len(m.group(0))
+
+        text = ZONE_OFFSET.sub(blank_zone, text)
+        text = ZONE_NAME.sub(blank_zone, text)
+
+    def restate(phrase: str, start: int) -> tuple[str, str | None]:
+        """Give a phrase its zone back, either inline or as a label.
+
+        Returns the phrase to quote and, when the zone is not part of it,
+        the zone to name alongside. One or the other always says where the
+        time came from, never neither.
+        """
+        if stated is None:
+            return phrase, None
+        end = start + len(phrase)
+        for zone_start, zone_end in zone_spans:
+            if start < 0:
+                break
+            if start - zone_end <= ZONE_NEAR and zone_start - end <= ZONE_NEAR:
+                # the author wrote the zone against this time, quote them
+                lo, hi = min(start, zone_start), max(end, zone_end)
+                said = spoken[lo:hi]
+                # blanking the zone out of "22:00 (CET)" leaves the closing
+                # bracket outside the span, and a lone "(" reads as a typo
+                for opener, closer in ("()", "[]"):
+                    if said.count(opener) > said.count(closer) and (
+                        spoken[hi : hi + 1] == closer
+                    ):
+                        said += closer
+                return said.strip(), None
+        # a bare time borrowing the zone stated elsewhere in the message,
+        # or a phrase we could not place, which gets the label to be safe
+        return phrase, stated.label
 
     if now is None:
         now = datetime.now(tz)
@@ -229,9 +278,16 @@ def extract_times(
     else:
         found = None
 
+    # search_dates returns substrings in the order they appear, so walking a
+    # cursor along the text locates each one well enough to find its zone
+    cursor = 0
     for phrase, when in found or []:
         if len(matches) == MAX_MATCHES:
             break
+        phrase = phrase.strip()
+        start = text.find(phrase, cursor)
+        if start >= 0:
+            cursor = start + len(phrase)
         # search_dates happily matches bare numbers and weekdays,
         # only keep phrases that carry an actual time of day
         if not TIME_OF_DAY.search(phrase):
@@ -243,5 +299,6 @@ def extract_times(
         if unix in seen:
             continue
         seen.add(unix)
-        matches.append(TimeMatch(phrase.strip(), when))
+        said, zone = restate(phrase, start)
+        matches.append(TimeMatch(said, when, zone))
     return matches

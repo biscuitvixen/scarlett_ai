@@ -38,13 +38,15 @@ class Timestamps(commands.Cog):
 
         # a message that names its own zone ("22:00 CET") reads the same for
         # everyone, so it converts without knowing who wrote it
-        zone = explicit_zone(message.content)
-        if zone is None:
+        stated = explicit_zone(message.content)
+        if stated is None:
             tz_name = await self.bot.db.get_timezone(message.author.id)
             if tz_name is None:
                 await self._prompt_for_timezone(message, match.group(0))
                 return
             zone = ZoneInfo(tz_name)
+        else:
+            zone = stated.tz
 
         matches = extract_times(message.content, zone)
         if not matches:
@@ -52,7 +54,10 @@ class Timestamps(commands.Cog):
         lines = []
         for m in matches:
             unix = int(m.when.timestamp())
-            lines.append(f'"{m.phrase}" is <t:{unix}:F> (<t:{unix}:R>)')
+            # m.zone is set when a bare time borrowed a zone stated elsewhere
+            # in the message, which is a guess worth saying out loud
+            said = f" in {m.zone}" if m.zone else ""
+            lines.append(f'"{m.phrase}"{said} is <t:{unix}:F> (<t:{unix}:R>)')
         await message.reply(
             "\n".join(lines),
             mention_author=False,

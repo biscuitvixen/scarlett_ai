@@ -176,6 +176,44 @@ def test_stated_zone_covers_the_bare_times_beside_it():
     }
 
 
+def test_stated_zone_is_quoted_back_in_the_phrase():
+    (m,) = extract_times("22:00 CET works for me", None, NOW)
+    assert m.phrase == "22:00 CET"
+    # already in the phrase, so no separate label to tack on
+    assert m.zone is None
+
+
+def test_borrowed_zone_is_labelled_separately():
+    text = "22:00 CET is standard, but 21:00 was better for a few"
+    said, borrowed = extract_times(text, None, NOW)
+    assert (said.phrase, said.zone) == ("22:00 CET", None)
+    # 21:00 never named a zone, it inherited one. Say so
+    assert (borrowed.phrase, borrowed.zone) == ("21:00", "CET")
+
+
+def test_bracketed_zone_keeps_its_bracket():
+    (m,) = extract_times("22:00 (CET) works", None, NOW)
+    assert m.phrase == "22:00 (CET)"
+
+
+def test_unplaceable_phrase_still_names_the_zone():
+    # blanking the zone leaves a gap that dateparser closes up, so this
+    # phrase cannot be found in the text again. It must not lose the zone
+    (m,) = extract_times("raid at 19:00 UTC+2 tomorrow", None, NOW)
+    assert m.zone == "UTC+2"
+    assert int(m.when.timestamp()) == unix(2026, 7, 2, 17, 0, tz=ZoneInfo("UTC"))
+
+
+def test_zone_before_the_time_is_quoted_too():
+    (m,) = extract_times("CET 22:00 then", None, NOW)
+    assert m.phrase == "CET 22:00"
+
+
+def test_no_zone_label_when_none_was_stated():
+    (m,) = extract_times("21:00 works", LONDON, NOW)
+    assert m.zone is None
+
+
 def test_numeric_offset_zone():
     (m,) = extract_times("raid at 19:00 UTC+2", None, NOW)
     assert int(m.when.timestamp()) == unix(2026, 7, 1, 17, 0, tz=ZoneInfo("UTC"))
@@ -187,17 +225,20 @@ def test_utc_is_literal():
 
 
 @pytest.mark.parametrize(
-    "text,expected",
+    "text,label,expected",
     [
-        ("22:00 CET", "Europe/Paris"),
-        ("22:00 (CET)", "Europe/Paris"),
-        ("8pm est", "America/New_York"),
-        ("the 19:00 PT stream", "America/Los_Angeles"),
-        ("19:00 UTC", "UTC"),
+        ("22:00 CET", "CET", "Europe/Paris"),
+        ("22:00 (CET)", "CET", "Europe/Paris"),
+        ("8pm est", "est", "America/New_York"),
+        ("the 19:00 PT stream", "PT", "America/Los_Angeles"),
+        ("19:00 UTC", "UTC", "UTC"),
     ],
 )
-def test_explicit_zone_found(text, expected):
-    assert explicit_zone(text) == ZoneInfo(expected)
+def test_explicit_zone_found(text, label, expected):
+    stated = explicit_zone(text)
+    assert stated.tz == ZoneInfo(expected)
+    # the label is quoted back at the author, so it is what they typed
+    assert stated.label == label
 
 
 @pytest.mark.parametrize(
