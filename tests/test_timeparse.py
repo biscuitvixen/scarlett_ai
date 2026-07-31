@@ -97,6 +97,23 @@ def test_future_preference():
     assert int(m.when.timestamp()) == unix(2026, 7, 2, 15, 0)
 
 
+def test_future_preference_on_the_last_day_of_a_month():
+    # same roll as above, but from the 31st, so tomorrow is in the next
+    # month. dateparser rolls the day and then pins the month back to the
+    # base's, which lands the answer a month in the past
+    month_end = datetime(2026, 7, 31, 17, 0, tzinfo=LONDON)
+    (m,) = extract_times("lets do 3pm", LONDON, month_end)
+    assert int(m.when.timestamp()) == unix(2026, 8, 1, 15, 0)
+
+
+def test_future_preference_on_new_years_eve():
+    # the same fault at a year boundary, where the month pinning leaves the
+    # rolled year in place and the time lands eleven months out instead
+    year_end = datetime(2026, 12, 31, 22, 0, tzinfo=LONDON)
+    (m,) = extract_times("19:00", LONDON, year_end, min_lead=timedelta(0))
+    assert int(m.when.timestamp()) == unix(2027, 1, 1, 19, 0)
+
+
 def test_same_day_time_stays_today():
     # dateparser compares bare times against the base in UTC, which used to
     # shift anything within the utc offset to tomorrow. Auckland's +12 makes

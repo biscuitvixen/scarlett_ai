@@ -122,6 +122,47 @@ MAX_MATCHES = 3
 MIN_LEAD = timedelta(hours=1)
 
 
+def _carries_a_date(phrase: str) -> bool:
+    """Say whether a phrase dates itself, beyond naming a time of day.
+
+    Cut the time out of "friday at 7pm" and dateparser still finds a date in
+    what is left; cut it out of "at 7pm" and there is nothing there. Asking
+    the parser is better than keeping our own list of the words it knows.
+    """
+    residue = TIME_OF_DAY.sub(" ", phrase)
+    if not residue.strip():
+        return False
+    return bool(
+        search_dates(
+            residue, languages=["en"], settings={"DEFAULT_LANGUAGES": ["en"]}
+        )
+    )
+
+
+def _next_occurrence(when: datetime, now: datetime, tz: tzinfo) -> datetime:
+    """Put a bare time of day on the next day its clock reading comes round.
+
+    A phrase that names no date has to borrow one, and dateparser borrows it
+    from RELATIVE_BASE badly: it moves a time that has already passed to
+    tomorrow, then pins the month back to the base's month, so on the last
+    day of a month the answer lands weeks in the past (31 July 20:34, "20:00"
+    -> 1 July) and on new year's eve it keeps the rolled year but not the
+    rolled month (31 Dec -> 1 Dec of the following year). Both are silently
+    dropped as past times, which is the whole feature going quiet for a day
+    a month. "The next time that clock reads so" is all a bare time means,
+    so work it out here rather than leaning on the parser for it.
+    """
+    # wall clock arithmetic, not elapsed time: a day later across a DST
+    # change is the same reading on the clock, an hour off in real seconds
+    local = now.replace(tzinfo=None)
+    stamp = local.replace(
+        hour=when.hour, minute=when.minute, second=0, microsecond=0
+    )
+    if stamp < local:
+        stamp += timedelta(days=1)
+    return stamp.replace(tzinfo=tz)
+
+
 def explicit_zone(text: str) -> StatedZone | None:
     """Return the timezone a message states for its own times, if any.
 
@@ -300,6 +341,8 @@ def extract_times(
         if not TIME_OF_DAY.search(phrase):
             continue
         when = when.astimezone(tz)
+        if not _carries_a_date(phrase):
+            when = _next_occurrence(when, now, tz)
         if when - now < min_lead:
             continue
         unix = int(when.timestamp())
