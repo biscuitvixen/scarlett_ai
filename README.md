@@ -5,6 +5,7 @@ A friendly, growing utility bot for Discord. Right now she handles cross-timezon
 Features:
 
 - **Timestamp coordination**: spots time phrases in messages ("friday at 7pm") and replies with Discord timestamp markup (`<t:unix:F>` and `<t:unix:R>`), so everyone sees the time in their own zone. Parsing is deterministic, so it needs no LLM. Users register a timezone with `/tz` (autocompleted), or say the zone in the message itself ("22:00 CET"), which works for everyone reading whether or not the author has registered one. `/time <phrase>` converts on demand, with none of the quiet-hours limits the listener applies.
+- **Self-assignable roles**: buttons on a message that hand out roles when clicked, so members pick their own pronouns, game pings or colours without anyone with Manage Roles being awake. Panels are built with `/roles` and come in three flavours: pick as many as you like, pick exactly one, or click-to-opt-in with no take-backs. See [Reaction roles](#reaction-roles).
 - **Music**: plays audio in voice channels via Lavalink. `/play` takes a link or a search term; `/skip`, `/stop`, `/pause`, `/volume`, `/shuffle`, `/loop`, `/queue` and `/nowplaying` round it out. She manages a queue and leaves on her own once the channel empties or nothing has played for a while.
 - **Personality chat** (optional, off by default): if you want it, she can chat back in her own voice. This is the one feature that needs an extra service, so it lives in its own section at the end; everything above works without it.
 
@@ -32,6 +33,93 @@ docker compose up -d --build
 ```
 
 That is the whole utility bot up and running. Giving her a personality is a separate, optional step covered at the end.
+
+## Reaction roles
+
+Despite the name everyone uses for them, these are buttons rather than
+reactions. Reactions were the only interactive surface bots had before
+2021; buttons give real labels, a private reply to whoever clicked, and
+no need for the message-reaction intent.
+
+Scarlett never records who holds which role. Discord already knows, and
+is the only authority on it, so nothing here can drift out of step with
+the role list and nobody loses a role if the database is thrown away.
+
+Clicks are confirmed privately, and a run of them rewrites one message
+rather than stacking up a column of them, so the confirmation reads as a
+live list of what you hold on that panel. Note that the role change
+itself is not private: roles show on profiles as normal, and Discord
+writes every change to the server audit log.
+
+### Setting up the server
+
+These are the once-off Discord-side jobs, and between them they account
+for essentially every way a role panel fails.
+
+1. **Put Scarlett's role above the roles she hands out.** Server
+   Settings > Roles, drag her up. A bot can only manage roles strictly
+   below its own highest role. This is the big one.
+2. **Give her Manage Roles**, server-wide. It is not a per-channel
+   permission.
+3. **Check your 2FA setting.** If Server Settings > Safety Setup requires
+   2FA for moderator actions, the account that owns the bot application
+   needs 2FA switched on or every role change fails.
+4. **Make a `#roles` channel.** Deny `@everyone` Send Messages so it
+   stays nothing but panels, and allow Scarlett View Channel, Send
+   Messages and Embed Links. She does not need Manage Messages.
+5. **Create the roles.** If a role only exists to unlock a channel, give
+   it no permissions at all and set the visibility on the channel
+   instead: deny `@everyone` View Channel there, allow the role. The
+   role then carries no power of its own.
+
+Roles Discord will never let anyone assign by hand are refused up front
+rather than at click time: `@everyone`, and any role managed by an
+integration such as another bot or Nitro boosting.
+
+### Building a panel
+
+```
+/roles create name:pronouns channel:#roles mode:multi title:"Pronouns"
+/roles add    panel:pronouns role:@they/them label:"they/them" emoji:🦊
+/roles add    panel:pronouns role:@she/her   label:"she/her"
+```
+
+Every edit rewrites the message straight away, so the panel takes shape
+as you build it. Panels are addressed by the short name you gave them,
+which autocompletes.
+
+| Mode | Behaviour | Good for |
+|------|-----------|----------|
+| `multi` | Each button toggles its own role | Pronouns, game pings, notification opt-ins |
+| `single` | Taking one role drops the others on that panel | Colours, region, age bracket |
+| `sticky` | Click to gain the role, never to lose it | Rules agreement, verification |
+
+Panels take a colour, either a name like `blurple` from the suggestions
+or a hex code like `#ff8800`, on `/roles create` or afterwards with
+`/roles colour`. The private confirmation you get on clicking a button
+wears the same colour, so a reply is recognisably from the panel it came
+from. Left unset, panels are blurple.
+
+The rest of the group: `/roles remove` takes a role off a panel,
+`/roles order` moves a button, `/roles list` shows what exists,
+`/roles repost` puts a panel back if its message got deleted, and
+`/roles delete` removes the panel entirely. None of them take roles away
+from anyone who already has one. The whole group is hidden from members
+without Manage Roles, because Discord gates it.
+
+One message holds at most 25 buttons, five to a row. Past that, make a
+second panel.
+
+### Moving over from Dyno
+
+Nothing is lost in the switch, because neither bot ever owned the role
+membership. Build the new panels in a staff-only channel and click
+through them, post them in `#roles` alongside Dyno's, and once people
+have moved across, delete Dyno's messages and take away its Manage
+Roles permission.
+
+Dyno's existing panels cannot be adopted in place. Only the bot that
+posted a message can put buttons on it, so the panels get rebuilt.
 
 ## Music
 
@@ -103,6 +191,43 @@ For the remote mode, run just the model on the other machine with `docker compos
 **Security**: vLLM has no auth by default and ignores `LLM_API_KEY` unless it is started with `--api-key`. Publishing port `8000` to anything wider than a trusted LAN/VPN gives anyone free use of the machine. Keep the two machines on the same LAN (or a Tailscale/WireGuard network), or set a secret in `LLM_API_KEY` and add `--api-key <secret>` to the `vllm serve` command.
 
 **Running the model locally**: the bundled `vllm` service needs an NVIDIA GPU and the container toolkit (Docker passes the GPU through via the `deploy.resources` reservation in the compose file). Weights are cached in the `hf-cache` volume, so a restart does not re-download them. On a DGX Spark specifically: it is aarch64 (GB10), so `vllm` must use NVIDIA's arm64 build (check [NGC](https://catalog.ngc.nvidia.com) for the current tag and update `docker-compose.yml` if needed; the other images are already multi-arch), and DGX OS ships the container toolkit so the GPU reservation works out of the box.
+
+## Running her locally
+
+Docker is the deployment story, but rebuilding an image to try a code
+change is a slow way to work. For development, run the bot straight out
+of a venv:
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+
+set -a && . ./.env && set +a           # config comes from the environment
+export DB_PATH=./data/scarlett.db      # the default path lives inside the image
+export MUSIC_ENABLED=false LLM_ENABLED=false
+.venv/bin/python -m scarlett
+```
+
+The `set -a` line is the part that catches people out. Under Docker,
+compose reads `.env` and injects it; run directly, nothing does, and the
+bot only ever reads the environment.
+
+Use a second bot application for this, with its own token and `GUILD_ID`
+pointing at a test server, so a half-finished change is never loose in a
+real one.
+
+`MUSIC_ENABLED=false` is the line that makes the logs readable. Lavalink
+is not running outside compose, and wavelink retries an unreachable node
+forever, so leaving it on buries everything you are actually trying to
+read under reconnect warnings. Off, the music cog is never loaded and
+the node is never created. `LLM_ENABLED=false` does the same for the
+chat cog. Roles, timestamps and `/help` need neither.
+
+Tests need nothing running at all:
+
+```sh
+.venv/bin/python -m pytest
+```
 
 ## CI
 

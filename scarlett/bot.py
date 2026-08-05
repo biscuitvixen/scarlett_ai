@@ -16,6 +16,7 @@ log = logging.getLogger(__name__)
 COGS = [
     "scarlett.cogs.general",
     "scarlett.cogs.timestamps",
+    "scarlett.cogs.roles",
     "scarlett.cogs.health",
 ]
 
@@ -66,7 +67,7 @@ class Scarlett(commands.Bot):
             log.error(
                 "cannot register slash commands in guild %s, reinvite with: "
                 "https://discord.com/oauth2/authorize?client_id=%s"
-                "&scope=bot+applications.commands&permissions=277062455360",
+                "&scope=bot+applications.commands&permissions=277330890816",
                 self.settings.guild_id,
                 self.application_id,
             )
