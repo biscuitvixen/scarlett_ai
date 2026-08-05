@@ -11,11 +11,11 @@ from .llm import LLM
 
 log = logging.getLogger(__name__)
 
-# always loaded; the chat cog is added on top only when the LLM is enabled
+# always loaded. music and chat each need a backing service, so they are
+# added only when theirs is switched on
 COGS = [
     "scarlett.cogs.general",
     "scarlett.cogs.timestamps",
-    "scarlett.cogs.music",
     "scarlett.cogs.health",
 ]
 
@@ -32,7 +32,11 @@ class Scarlett(commands.Bot):
 
     async def setup_hook(self) -> None:
         self.db = await Database.open(self.settings.db_path)
-        cogs = COGS + ["scarlett.cogs.chat"] if self.settings.llm_enabled else COGS
+        cogs = list(COGS)
+        if self.settings.music_enabled:
+            cogs.append("scarlett.cogs.music")
+        if self.settings.llm_enabled:
+            cogs.append("scarlett.cogs.chat")
         for cog in cogs:
             await self.load_extension(cog)
             log.info("loaded %s", cog)
@@ -43,7 +47,8 @@ class Scarlett(commands.Bot):
         # commands synced. Off to one side, an unreachable node just disables
         # playback. wavelink.Pool is global, the music cog reaches it without
         # any extra wiring.
-        self.lavalink_task = asyncio.create_task(self._connect_lavalink())
+        if self.settings.music_enabled:
+            self.lavalink_task = asyncio.create_task(self._connect_lavalink())
 
         # Guild-scoped sync shows new slash commands immediately.
         # Global sync can take up to an hour, so use GUILD_ID during dev.

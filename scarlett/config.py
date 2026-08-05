@@ -60,6 +60,11 @@ class Settings(BaseSettings):
     # she posts a quick "waking up" line first instead of sitting silent
     chat_wake_after: float = 8.0
 
+    # on by default, since compose always brings lavalink up alongside her.
+    # turn it off to drop the music cog and skip the node entirely, which is
+    # what you want running her outside compose: wavelink retries an
+    # unreachable node forever and buries every other log line doing it
+    music_enabled: bool = True
     lavalink_url: str = "http://lavalink:2333"
     lavalink_password: str = "youshallnotpass"
     # seconds she lingers in a voice channel with nothing playing before
