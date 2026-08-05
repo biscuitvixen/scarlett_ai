@@ -3,7 +3,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from scarlett.timeparse import explicit_zone, extract_times
+from scarlett.timeparse import TIME_OF_DAY, explicit_zone, extract_times
 
 LONDON = ZoneInfo("Europe/London")
 CHICAGO = ZoneInfo("America/Chicago")
@@ -314,3 +314,25 @@ def test_explicit_zone_not_found(text):
 )
 def test_no_match(text):
     assert extract_times(text, LONDON, NOW) == []
+
+
+# The regex is also the cheap gate the listener uses to decide a message is
+# worth looking at, so anything it matches and then cannot convert costs
+# someone a "set your timezone" prompt for a phrase that was never a time.
+@pytest.mark.parametrize(
+    "text", ["20pm", "13pm", "23pm", "0am", "00am", "99pm", "see you at 20pm"]
+)
+def test_impossible_clock_faces_are_not_times(text):
+    assert not TIME_OF_DAY.search(text), f"{text!r} should not read as a time"
+
+
+@pytest.mark.parametrize(
+    "text", ["1am", "7pm", "07pm", "11am", "12am", "12pm", "7:30pm", "12:45am"]
+)
+def test_the_twelve_hour_clock_still_works(text):
+    assert TIME_OF_DAY.search(text), f"{text!r} should still read as a time"
+
+
+def test_a_meridiem_hour_is_not_found_inside_a_longer_number():
+    # "18pm" should fail outright rather than quietly matching the 8
+    assert not TIME_OF_DAY.search("18pm"), "a run of digits should not be split"

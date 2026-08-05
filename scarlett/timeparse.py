@@ -40,7 +40,10 @@ class StatedZone(NamedTuple):
 
 TIME_OF_DAY = re.compile(
     r"""
-      \b\d{1,2}(?::[0-5]\d)?\s*(?:am|pm)\b        # 7pm, 7:30 pm
+      # 1 to 12 only: am and pm name a clock face that has no 13 or 0, and
+      # this doubles as the listener's gate, so matching "20pm" costs
+      # someone a prompt to set a timezone for a phrase that was not a time
+      \b(?:1[0-2]|0?[1-9])(?::[0-5]\d)?\s*(?:am|pm)\b   # 7pm, 7:30 pm
     | \b(?:[01]?\d|2[0-3]):[0-5]\d\b              # 19:30
     | \bat\s+(?:[01]\d|2[0-3])[0-5]\d\b           # at 1900
     | \b(?:[01]\d|2[0-3])[0-5]\d\s*(?:hrs?|hours)\b   # 1900hrs
