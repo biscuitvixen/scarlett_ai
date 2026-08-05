@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import discord
@@ -27,6 +28,7 @@ class Scarlett(commands.Bot):
         self.settings = settings
         self.db: Database | None = None
         self.llm: LLM | None = LLM(settings) if settings.llm_enabled else None
+        self.lavalink_task: asyncio.Task | None = None
 
     async def setup_hook(self) -> None:
         self.db = await Database.open(self.settings.db_path)
@@ -35,18 +37,13 @@ class Scarlett(commands.Bot):
             await self.load_extension(cog)
             log.info("loaded %s", cog)
 
-        # Connect to lavalink for music. Wrapped so an unreachable node just
-        # disables playback instead of taking the whole bot down, same spirit
-        # as the sync fallback below. wavelink.Pool is global, the music cog
-        # reaches it without any extra wiring.
-        try:
-            node = wavelink.Node(
-                uri=self.settings.lavalink_url,
-                password=self.settings.lavalink_password,
-            )
-            await wavelink.Pool.connect(client=self, nodes=[node])
-        except Exception:
-            log.exception("could not connect to lavalink, music will be unavailable")
+        # Connect to lavalink for music, in the background: wavelink retries
+        # an unreachable node forever, and awaiting that here would hold up
+        # setup_hook, leaving the bot logged in but never ready and with no
+        # commands synced. Off to one side, an unreachable node just disables
+        # playback. wavelink.Pool is global, the music cog reaches it without
+        # any extra wiring.
+        self.lavalink_task = asyncio.create_task(self._connect_lavalink())
 
         # Guild-scoped sync shows new slash commands immediately.
         # Global sync can take up to an hour, so use GUILD_ID during dev.
@@ -69,10 +66,24 @@ class Scarlett(commands.Bot):
                 self.application_id,
             )
 
+    async def _connect_lavalink(self) -> None:
+        try:
+            node = wavelink.Node(
+                uri=self.settings.lavalink_url,
+                password=self.settings.lavalink_password,
+            )
+            await wavelink.Pool.connect(client=self, nodes=[node])
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("could not connect to lavalink, music will be unavailable")
+
     async def on_ready(self) -> None:
         log.info("logged in as %s (%s)", self.user, self.user.id)
 
     async def close(self) -> None:
+        if self.lavalink_task is not None:
+            self.lavalink_task.cancel()
         if self.db is not None:
             await self.db.close()
         await super().close()
