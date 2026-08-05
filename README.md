@@ -229,6 +229,34 @@ Tests need nothing running at all:
 .venv/bin/python -m pytest
 ```
 
+### What version am I running
+
+`/version` answers with `<version> (<commit>)`, privately, and only for
+people with Manage Server. It is the same line she writes to the startup
+log. Nothing about the build shows on her profile or her status.
+
+The version comes from the project metadata; the commit is baked into
+the image at build time from `GIT_SHA`, which CI fills in from the commit
+being built. The published images also carry it in their OCI labels, so
+`docker inspect` answers the same question without Discord:
+
+```sh
+docker inspect --format \
+  '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
+  ghcr.io/<owner>/scarlett_ai:latest
+```
+
+Running from a checkout nothing sets it, so pass it yourself if you want
+the commit named:
+
+```sh
+export GIT_SHA=$(git rev-parse HEAD)
+```
+
+One thing catches people out locally: the version is read from the
+*installed* package, so bumping it in `pyproject.toml` changes nothing
+until `pip install -e .` runs again and rewrites the metadata.
+
 ## CI
 
 Pushes to `main` (and `v*` tags) build a multi-arch image and publish it to GHCR as `ghcr.io/<owner>/<repo>`. Pull requests build without publishing.

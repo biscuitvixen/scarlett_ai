@@ -8,6 +8,7 @@ from discord.ext import commands
 from .config import Settings
 from .db import Database
 from .llm import LLM
+from .version import describe, package_version
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class Scarlett(commands.Bot):
         self.db: Database | None = None
         self.llm: LLM | None = LLM(settings) if settings.llm_enabled else None
         self.lavalink_task: asyncio.Task | None = None
+        self.version = describe(package_version(), settings.git_sha)
 
     async def setup_hook(self) -> None:
         self.db = await Database.open(self.settings.db_path)
@@ -85,7 +87,9 @@ class Scarlett(commands.Bot):
             log.exception("could not connect to lavalink, music will be unavailable")
 
     async def on_ready(self) -> None:
-        log.info("logged in as %s (%s)", self.user, self.user.id)
+        log.info(
+            "logged in as %s (%s), running %s", self.user, self.user.id, self.version
+        )
 
     async def close(self) -> None:
         if self.lavalink_task is not None:

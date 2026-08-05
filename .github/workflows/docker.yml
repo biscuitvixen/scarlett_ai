@@ -47,6 +47,11 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
+          # Baked in so the running bot can say which commit it is. The image
+          # labels already carry it for anyone holding the image; this is for
+          # anyone who only has the bot.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Persist Docker layers in the GitHub Actions cache so unchanged layers

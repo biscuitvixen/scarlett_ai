@@ -65,6 +65,16 @@ class General(commands.Cog):
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
+    # which build is running is an operator's question, not something to
+    # put in front of everyone, so it is asked for rather than displayed
+    @app_commands.command(description="Which build of me is running")
+    @app_commands.guild_only()
+    @app_commands.default_permissions(manage_guild=True)
+    async def version(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_message(
+            f"scarlett {self.bot.version}", ephemeral=True
+        )
+
 
 async def setup(bot: commands.Bot) -> None:
     await bot.add_cog(General(bot))

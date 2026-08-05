@@ -73,6 +73,10 @@ class Settings(BaseSettings):
 
     db_path: str = "/app/data/scarlett.db"
 
+    # the commit the image was built from, baked in by the Dockerfile. empty
+    # running from a checkout, where you already know what you are running
+    git_sha: str = ""
+
     @property
     def chat_guilds(self) -> set[int]:
         return self._id_set(self.chat_guild_ids)

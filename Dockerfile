@@ -17,6 +17,13 @@ RUN useradd --create-home scarlett \
     && chown scarlett:scarlett /app/data
 USER scarlett
 
+# The commit this image was built from, for the version she reports at
+# runtime. Declared here rather than higher up because a build arg
+# invalidates every layer below it, and the sha changes on every commit
+# while the dependency install above it almost never does.
+ARG GIT_SHA=""
+ENV GIT_SHA=$GIT_SHA
+
 # healthy == connected to the gateway. the Health cog stamps a heartbeat file
 # while the bot is ready; this fails once it goes stale. start-period covers
 # login and the first gateway connect before failures start counting
