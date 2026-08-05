@@ -40,6 +40,15 @@ class General(commands.Cog):
             ),
             inline=False,
         )
+        embed.add_field(
+            name="Roles",
+            value=(
+                "Head to the role panels and click a button to give "
+                "yourself a role, or click it again to hand it back. "
+                "Whoever runs the server builds the panels with `/roles`."
+            ),
+            inline=False,
+        )
         # shown even when the llm is off, the wording hints she might be quiet
         embed.add_field(
             name="If I'm feeling talkative",
