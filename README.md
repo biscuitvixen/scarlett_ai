@@ -180,6 +180,43 @@ For the remote mode, run just the model on the other machine with `docker compos
 
 **Running the model locally**: the bundled `vllm` service needs an NVIDIA GPU and the container toolkit (Docker passes the GPU through via the `deploy.resources` reservation in the compose file). Weights are cached in the `hf-cache` volume, so a restart does not re-download them. On a DGX Spark specifically: it is aarch64 (GB10), so `vllm` must use NVIDIA's arm64 build (check [NGC](https://catalog.ngc.nvidia.com) for the current tag and update `docker-compose.yml` if needed; the other images are already multi-arch), and DGX OS ships the container toolkit so the GPU reservation works out of the box.
 
+## Running her locally
+
+Docker is the deployment story, but rebuilding an image to try a code
+change is a slow way to work. For development, run the bot straight out
+of a venv:
+
+```sh
+python3 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+
+set -a && . ./.env && set +a           # config comes from the environment
+export DB_PATH=./data/scarlett.db      # the default path lives inside the image
+export MUSIC_ENABLED=false LLM_ENABLED=false
+.venv/bin/python -m scarlett
+```
+
+The `set -a` line is the part that catches people out. Under Docker,
+compose reads `.env` and injects it; run directly, nothing does, and the
+bot only ever reads the environment.
+
+Use a second bot application for this, with its own token and `GUILD_ID`
+pointing at a test server, so a half-finished change is never loose in a
+real one.
+
+`MUSIC_ENABLED=false` is the line that makes the logs readable. Lavalink
+is not running outside compose, and wavelink retries an unreachable node
+forever, so leaving it on buries everything you are actually trying to
+read under reconnect warnings. Off, the music cog is never loaded and
+the node is never created. `LLM_ENABLED=false` does the same for the
+chat cog. Roles, timestamps and `/help` need neither.
+
+Tests need nothing running at all:
+
+```sh
+.venv/bin/python -m pytest
+```
+
 ## CI
 
 Pushes to `main` (and `v*` tags) build a multi-arch image and publish it to GHCR as `ghcr.io/<owner>/<repo>`. Pull requests build without publishing.
