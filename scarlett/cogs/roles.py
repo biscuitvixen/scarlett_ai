@@ -22,6 +22,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from ..ephemeral import EphemeralReplies
 from ..roles import (
     MAX_ENTRIES,
     MAX_LABEL,
@@ -36,6 +37,7 @@ from ..roles import (
     encode_custom_id,
     final_roles,
     pack_rows,
+    parse_hex_colour,
     resolve_click,
 )
 
@@ -44,6 +46,11 @@ log = logging.getLogger(__name__)
 # panel names are typed into slash commands and used as storage keys, so
 # they stay short and boring
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,30}$")
+
+# names the slash command group and, because GroupCog takes its cog name
+# from the same argument, the cog itself. button callbacks look the cog up
+# by it to reach the shared reply tracker, so the two must not drift apart
+COG_NAME = "roles"
 
 # each rejection names the fix rather than the rule, because the person
 # reading it is usually mid-click and not holding the role hierarchy in
@@ -69,6 +76,37 @@ REJECTIONS = {
     ),
 }
 
+DEFAULT_COLOUR = discord.Colour.blurple()
+
+# offered by the colour autocomplete. resolved through discord.Colour rather
+# than written out here, so the values follow the library's palette instead
+# of a copy of it going stale
+NAMED_COLOURS = (
+    "blurple",
+    "green",
+    "dark_green",
+    "blue",
+    "dark_blue",
+    "red",
+    "dark_red",
+    "gold",
+    "orange",
+    "purple",
+    "magenta",
+    "fuchsia",
+    "pink",
+    "teal",
+    "yellow",
+    "greyple",
+    "light_grey",
+    "dark_grey",
+)
+
+_BAD_COLOUR = (
+    "I can't read '{given}' as a colour. Pick one from the suggestions, or "
+    "give me a hex code like #ff8800."
+)
+
 MODE_BLURB = {
     PanelMode.MULTI: "pick as many as you like",
     PanelMode.SINGLE: "pick one",
@@ -90,6 +128,32 @@ def _rejection_for(role: discord.Role) -> RoleRejection | None:
 
 def _emoji(raw: str | None) -> discord.PartialEmoji | None:
     return discord.PartialEmoji.from_str(raw) if raw else None
+
+
+def resolve_colour(raw: str) -> int | None:
+    """A named colour or a hex one, None if the text is neither."""
+    name = raw.strip().lower().replace(" ", "_").replace("-", "_")
+    if name in NAMED_COLOURS:
+        return getattr(discord.Colour, name)().value
+    return parse_hex_colour(raw)
+
+
+def _colour(value: int | None) -> discord.Colour:
+    return DEFAULT_COLOUR if value is None else discord.Colour(value)
+
+
+def colour_from_message(message: discord.Message | None) -> discord.Colour:
+    """The panel's colour, taken off the panel message itself.
+
+    Read from the message rather than storage for the same reason the
+    panel's roles are: a click should not need a database round trip to
+    answer.
+    """
+    if message is not None and message.embeds:
+        posted = message.embeds[0].colour
+        if posted is not None:
+            return posted
+    return DEFAULT_COLOUR
 
 
 def panel_roles_from_message(message: discord.Message | None) -> frozenset[int]:
@@ -153,11 +217,18 @@ class RoleButton(
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await handle_click(interaction, self.mode, self.role_id)
+        cog = interaction.client.get_cog(COG_NAME)
+        # a throwaway tracker keeps a click working even with the cog
+        # somehow unloaded; it just cannot reuse anything
+        replies = cog.replies if isinstance(cog, Roles) else EphemeralReplies()
+        await handle_click(interaction, self.mode, self.role_id, replies)
 
 
 async def handle_click(
-    interaction: discord.Interaction, mode: PanelMode, role_id: int
+    interaction: discord.Interaction,
+    mode: PanelMode,
+    role_id: int,
+    replies: EphemeralReplies,
 ) -> None:
     """Apply one button press to the clicker's roles."""
     guild = interaction.guild
@@ -169,12 +240,20 @@ async def handle_click(
         )
         return
 
+    # one reply per person per panel, so a run of clicks rewrites a single
+    # message instead of stacking up a column of them
+    key = (member.id, interaction.message.id if interaction.message else None)
+    colour = colour_from_message(interaction.message)
+
     role = guild.get_role(role_id)
     if role is None:
         log.info("panel click for missing role %s in guild %s", role_id, guild.id)
-        await interaction.response.send_message(
-            "That role doesn't exist any more. I'll tidy the panel up.",
-            ephemeral=True,
+        await replies.send(
+            interaction,
+            embed=_reply_embed(
+                "That role doesn't exist any more. I'll tidy the panel up.", colour
+            ),
+            key=key,
         )
         return
 
@@ -190,21 +269,26 @@ async def handle_click(
             guild.name,
             rejection.value,
         )
-        await interaction.response.send_message(
-            REJECTIONS[rejection].format(role=role.name), ephemeral=True
+        await replies.send(
+            interaction,
+            embed=_reply_embed(REJECTIONS[rejection].format(role=role.name), colour),
+            key=key,
         )
         return
 
     held = {r.id for r in member.roles}
-    panel_roles = (
-        panel_roles_from_message(interaction.message)
-        if mode is PanelMode.SINGLE
-        else frozenset()
-    )
+    # read from the message for every mode, not just the exclusive one: the
+    # reply reports where the clicker now stands on the whole panel
+    panel_roles = panel_roles_from_message(interaction.message)
     change = resolve_click(mode, role_id, held, panel_roles)
     if not change.changed:
-        await interaction.response.send_message(
-            f"You already have {role.name}.", ephemeral=True
+        await replies.send(
+            interaction,
+            embed=_reply_embed(
+                f"You already have {role.name}.\n{_standing(guild, held, panel_roles)}",
+                colour,
+            ),
+            key=key,
         )
         return
 
@@ -223,16 +307,23 @@ async def handle_click(
         # the checks above passed, so the hierarchy moved under us between
         # the check and the write
         log.warning("forbidden assigning %s to %s", role.name, member.id)
-        await interaction.followup.send(
-            REJECTIONS[RoleRejection.OUTRANKED].format(role=role.name),
-            ephemeral=True,
+        await replies.send(
+            interaction,
+            embed=_reply_embed(
+                REJECTIONS[RoleRejection.OUTRANKED].format(role=role.name), colour
+            ),
+            key=key,
         )
         return
     except discord.HTTPException:
         log.exception("role edit failed for %s in guild %s", member.id, guild.id)
-        await interaction.followup.send(
-            "Discord wouldn't take that change just now. Try again in a moment.",
-            ephemeral=True,
+        await replies.send(
+            interaction,
+            embed=_reply_embed(
+                "Discord wouldn't take that change just now. Try again in a moment.",
+                colour,
+            ),
+            key=key,
         )
         return
 
@@ -246,7 +337,31 @@ async def handle_click(
         _names(guild, change.add),
         _names(guild, change.remove),
     )
-    await interaction.followup.send(_describe(guild, change), ephemeral=True)
+    await replies.send(
+        interaction,
+        embed=_reply_embed(
+            f"{_describe(guild, change)}\n{_standing(guild, target, panel_roles)}",
+            colour,
+        ),
+        key=key,
+    )
+
+
+def _reply_embed(text: str, colour: discord.Colour) -> discord.Embed:
+    """A click confirmation, wearing the colour of the panel it came from."""
+    return discord.Embed(description=text, colour=colour)
+
+
+def _standing(
+    guild: discord.Guild, held: frozenset[int] | set[int], panel_roles: frozenset[int]
+) -> str:
+    """Where the clicker now stands on this panel.
+
+    The reply is rewritten in place on every click, so it reads as a live
+    readout rather than a running commentary of one-off changes.
+    """
+    mine = _names(guild, frozenset(held) & panel_roles)
+    return f"On this panel you have: {mine}." if mine else "You have none of these."
 
 
 def _names(guild: discord.Guild, ids: frozenset[int]) -> str:
@@ -293,7 +408,7 @@ def render_embed(panel: Panel) -> discord.Embed:
     embed = discord.Embed(
         title=panel.title,
         description=panel.body or None,
-        color=discord.Color.blurple(),
+        colour=_colour(panel.colour),
     )
     footer = MODE_BLURB[panel.mode]
     if not panel.entries:
@@ -312,12 +427,15 @@ def build_view(panel: Panel) -> discord.ui.View:
 
 @app_commands.guild_only()
 @app_commands.default_permissions(manage_roles=True)
-class Roles(commands.GroupCog, name="roles"):
+class Roles(commands.GroupCog, name=COG_NAME):
     """Admin surface. Discord itself gates this on Manage Roles."""
 
     def __init__(self, bot: commands.Bot, store: PanelStore):
         self.bot = bot
         self.store = store
+        # shared by every panel click in this process, keyed per person
+        # per panel inside
+        self.replies = EphemeralReplies()
         super().__init__()
 
     # panels are edited in place, so every command that changes one ends
@@ -361,6 +479,17 @@ class Roles(commands.GroupCog, name="roles"):
             if needle in p.name.lower()
         ][:25]
 
+    async def colour_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        # suggestions only: the field still takes a hex code typed straight in
+        needle = current.lower().replace(" ", "_").replace("-", "_")
+        return [
+            app_commands.Choice(name=name.replace("_", " "), value=name)
+            for name in NAMED_COLOURS
+            if needle in name
+        ][:25]
+
     @app_commands.command(description="Post a new empty role panel")
     @app_commands.describe(
         name="Short name you'll use to edit it later, e.g. pronouns",
@@ -368,7 +497,9 @@ class Roles(commands.GroupCog, name="roles"):
         mode="How the buttons relate to each other",
         title="Heading shown on the panel",
         body="Optional line of explanation under the heading",
+        colour="A name like blurple, or a hex code like #ff8800",
     )
+    @app_commands.autocomplete(colour=colour_autocomplete)
     async def create(
         self,
         interaction: discord.Interaction,
@@ -377,6 +508,7 @@ class Roles(commands.GroupCog, name="roles"):
         mode: PanelMode,
         title: str,
         body: str = "",
+        colour: str | None = None,
     ) -> None:
         if not NAME_PATTERN.match(name):
             await _reply(
@@ -388,6 +520,10 @@ class Roles(commands.GroupCog, name="roles"):
         if await self.store.get_panel(interaction.guild_id, name) is not None:
             await _reply(interaction, f"There's already a panel called '{name}'.")
             return
+        value = None if colour is None else resolve_colour(colour)
+        if colour is not None and value is None:
+            await _reply(interaction, _BAD_COLOUR.format(given=colour))
+            return
 
         await interaction.response.defer(ephemeral=True)
 
@@ -398,6 +534,7 @@ class Roles(commands.GroupCog, name="roles"):
             mode=mode,
             title=title,
             body=body,
+            colour=value,
         )
         try:
             message = await channel.send(
@@ -525,6 +662,27 @@ class Roles(commands.GroupCog, name="roles"):
         await self._rewrite(updated)
         await self.store.save_panel(updated)
         await _reply(interaction, f"Moved {role.name} on '{panel}'.")
+
+    @app_commands.command(name="colour", description="Recolour a panel")
+    @app_commands.describe(colour="A name like blurple, or a hex code like #ff8800")
+    @app_commands.autocomplete(panel=panel_autocomplete, colour=colour_autocomplete)
+    async def recolour(
+        self, interaction: discord.Interaction, panel: str, colour: str
+    ) -> None:
+        existing = await self._panel_or_complain(interaction, panel)
+        if existing is None:
+            return
+        value = resolve_colour(colour)
+        if value is None:
+            await _reply(interaction, _BAD_COLOUR.format(given=colour))
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        updated = dataclasses.replace(existing, colour=value)
+        posted = await self._rewrite(updated)
+        await self.store.save_panel(updated)
+        note = "" if posted else " The panel's message is missing, /roles repost it."
+        await _reply(interaction, f"'{panel}' is now #{value:06x}.{note}")
 
     @app_commands.command(name="list", description="Show this server's panels")
     async def list_panels(self, interaction: discord.Interaction) -> None:

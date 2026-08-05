@@ -45,6 +45,12 @@ Scarlett never records who holds which role. Discord already knows, and
 is the only authority on it, so nothing here can drift out of step with
 the role list and nobody loses a role if the database is thrown away.
 
+Clicks are confirmed privately, and a run of them rewrites one message
+rather than stacking up a column of them, so the confirmation reads as a
+live list of what you hold on that panel. Note that the role change
+itself is not private: roles show on profiles as normal, and Discord
+writes every change to the server audit log.
+
 ### Setting up the server
 
 These are the once-off Discord-side jobs, and between them they account
@@ -87,6 +93,12 @@ which autocompletes.
 | `multi` | Each button toggles its own role | Pronouns, game pings, notification opt-ins |
 | `single` | Taking one role drops the others on that panel | Colours, region, age bracket |
 | `sticky` | Click to gain the role, never to lose it | Rules agreement, verification |
+
+Panels take a colour, either a name like `blurple` from the suggestions
+or a hex code like `#ff8800`, on `/roles create` or afterwards with
+`/roles colour`. The private confirmation you get on clicking a button
+wears the same colour, so a reply is recognisably from the panel it came
+from. Left unset, panels are blurple.
 
 The rest of the group: `/roles remove` takes a role off a panel,
 `/roles order` moves a button, `/roles list` shows what exists,

@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 
 import pytest
 
@@ -319,3 +320,187 @@ def test_panels_in_other_guilds_are_invisible(tmp_path):
     listed, fetched = run_store(tmp_path, body)
     assert listed == [], "another guild's panels should not be listed"
     assert fetched is None, "another guild's panel should not be fetchable"
+
+
+# the cog itself. these need a Bot instance but no gateway, and they cover
+# the wiring that pure logic tests cannot see
+
+
+class StubStore:
+    async def get_panel(self, guild_id, name):
+        return None
+
+    async def list_panels(self, guild_id):
+        return []
+
+    async def save_panel(self, panel):
+        pass
+
+    async def delete_panel(self, guild_id, name):
+        pass
+
+    async def set_message_id(self, guild_id, name, message_id):
+        pass
+
+    async def panel_for_message(self, message_id):
+        return None
+
+    async def panels_with_role(self, guild_id, role_id):
+        return []
+
+
+def build_bot():
+    import discord
+    from discord.ext import commands
+
+    from scarlett.cogs.roles import Roles
+
+    async def main():
+        bot = commands.Bot(command_prefix="!", intents=discord.Intents.default())
+        cog = Roles(bot, StubStore())
+        await bot.add_cog(cog)
+        return bot, cog
+
+    return asyncio.run(main())
+
+
+def test_the_cog_registers_under_the_name_buttons_look_it_up_by():
+    # GroupCog takes its cog name from the same argument as the command
+    # group, so a mismatch here leaves every button click unable to reach
+    # the shared reply tracker, silently and without an error
+    from scarlett.cogs.roles import COG_NAME
+
+    bot, cog = build_bot()
+    assert bot.get_cog(COG_NAME) is cog, (
+        f"button callbacks look the cog up as {COG_NAME!r}, "
+        f"but it registered as {cog.qualified_name!r}"
+    )
+
+
+def test_the_admin_group_is_gated_on_manage_roles():
+    import discord
+
+    from scarlett.cogs.roles import COG_NAME
+
+    bot, _ = build_bot()
+    group = next(c for c in bot.tree.get_commands() if c.name == COG_NAME)
+    assert group.guild_only, "role panels only make sense inside a guild"
+    assert group.default_permissions == discord.Permissions(manage_roles=True), (
+        "the admin surface should default to Manage Roles only"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("#ff8800", 0xFF8800),
+        ("ff8800", 0xFF8800),
+        ("0xff8800", 0xFF8800),
+        ("FF8800", 0xFF8800),
+        ("  #ff8800  ", 0xFF8800),
+        ("#f80", 0xFF8800),  # shorthand expands the way CSS does
+        ("f80", 0xFF8800),
+        ("#000000", 0x000000),
+    ],
+)
+def test_hex_colours_are_read(raw, expected):
+    from scarlett.roles import parse_hex_colour
+
+    assert parse_hex_colour(raw) == expected, f"{raw!r} read as the wrong colour"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    ["", "blurple", "#ff88", "#ff88000", "#gggggg", "rgb(1,2,3)", "#ff-800"],
+)
+def test_things_that_are_not_hex_colours_are_refused(raw):
+    from scarlett.roles import parse_hex_colour
+
+    assert parse_hex_colour(raw) is None, f"{raw!r} should not have parsed"
+
+
+def test_named_colours_resolve_without_hardcoded_values():
+    import discord
+
+    from scarlett.cogs.roles import resolve_colour
+
+    assert resolve_colour("blurple") == discord.Colour.blurple().value, (
+        "a named colour should come from the library's palette"
+    )
+    assert resolve_colour("dark green") == discord.Colour.dark_green().value, (
+        "a name typed with a space should still resolve"
+    )
+    assert resolve_colour("#ff8800") == 0xFF8800, "hex should still work"
+    assert resolve_colour("mauve") is None, "an unknown name should be refused"
+
+
+def test_a_panels_colour_survives_storage(tmp_path):
+    saved = panel(entries=entries(FOX))
+    saved = dataclasses.replace(saved, colour=0xFF8800)
+
+    async def body(db):
+        await db.save_panel(saved)
+        return await db.get_panel(saved.guild_id, saved.name)
+
+    loaded = run_store(tmp_path, body)
+    assert loaded.colour == 0xFF8800, "the panel colour did not survive the round trip"
+
+
+def test_a_panel_without_a_colour_stays_without_one(tmp_path):
+    async def body(db):
+        await db.save_panel(panel(entries=entries(FOX)))
+        return await db.get_panel(1, "pronouns")
+
+    assert run_store(tmp_path, body).colour is None, (
+        "an uncoloured panel should not gain a colour"
+    )
+
+
+def test_editing_a_panel_keeps_its_colour():
+    # _replace_entries rebuilds the panel, and every field not being carried
+    # across is the failure this guards
+    coloured = dataclasses.replace(panel(entries=entries(FOX, WOLF)), colour=0xFF8800)
+    for updated in (
+        coloured.without_role(WOLF),
+        coloured.with_entry(PanelEntry(0, OTTER, "otter")),
+        coloured.with_role_at(WOLF, 0),
+    ):
+        assert updated.colour == 0xFF8800, "editing a panel lost its colour"
+
+
+def test_a_database_from_before_colours_gains_the_column(tmp_path):
+    # CREATE TABLE IF NOT EXISTS does nothing to a table that already
+    # exists, so an existing deployment only gets the column by migration
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    old = sqlite3.connect(path)
+    old.executescript(
+        """
+        CREATE TABLE role_panels (
+            guild_id   INTEGER NOT NULL,
+            name       TEXT    NOT NULL,
+            channel_id INTEGER NOT NULL,
+            message_id INTEGER,
+            mode       TEXT    NOT NULL,
+            title      TEXT    NOT NULL,
+            body       TEXT    NOT NULL DEFAULT '',
+            PRIMARY KEY (guild_id, name)
+        );
+        INSERT INTO role_panels VALUES (1, 'pronouns', 2, 3, 'multi', 'Pick', 'hi');
+        """
+    )
+    old.commit()
+    old.close()
+
+    async def main():
+        db = await Database.open(str(path))
+        try:
+            return await db.get_panel(1, "pronouns")
+        finally:
+            await db.close()
+
+    loaded = asyncio.run(main())
+    assert loaded is not None, "the existing panel should have survived the migration"
+    assert loaded.title == "Pick", "the existing row was damaged by the migration"
+    assert loaded.colour is None, "a panel from before colours should have none"

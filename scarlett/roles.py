@@ -20,8 +20,9 @@ connection, and portable to another bot as-is.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
@@ -80,6 +81,10 @@ class Panel:
     # been deleted and the definition is waiting to be reposted
     message_id: int | None = None
     entries: tuple[PanelEntry, ...] = ()
+    # 0xRRGGBB for the panel's embed, None to leave it to the caller's
+    # default. plain int rather than a Discord colour so this module keeps
+    # to itself
+    colour: int | None = None
 
     @property
     def role_ids(self) -> frozenset[int]:
@@ -115,16 +120,9 @@ class Panel:
         renumbered = tuple(
             PanelEntry(i, e.role_id, e.label, e.emoji) for i, e in enumerate(entries)
         )
-        return Panel(
-            guild_id=self.guild_id,
-            name=self.name,
-            channel_id=self.channel_id,
-            mode=self.mode,
-            title=self.title,
-            body=self.body,
-            message_id=self.message_id,
-            entries=renumbered,
-        )
+        # replace() rather than rebuilding field by field, so a field added
+        # to the panel later cannot be silently dropped here
+        return replace(self, entries=renumbered)
 
 
 @dataclass(frozen=True)
@@ -225,6 +223,28 @@ def check_assignable(
     if not bot_outranks:
         return RoleRejection.OUTRANKED
     return None
+
+
+MAX_COLOUR = 0xFFFFFF
+
+# #rgb, #rrggbb, and the 0x forms of both, with the hash and prefix optional
+_HEX_COLOUR = re.compile(r"^(?:0x)?#?([0-9a-f]{3}|[0-9a-f]{6})$", re.I)
+
+
+def parse_hex_colour(raw: str) -> int | None:
+    """Read a hex colour, None if the text is not one.
+
+    Shorthand expands the way CSS does, so f80 and ff8800 mean the same
+    thing. Named colours are the caller's business, since their values
+    belong to whatever is doing the rendering.
+    """
+    match = _HEX_COLOUR.match(raw.strip())
+    if match is None:
+        return None
+    digits = match.group(1)
+    if len(digits) == 3:
+        digits = "".join(d * 2 for d in digits)
+    return int(digits, 16)
 
 
 def pack_rows(entries: Sequence[PanelEntry]) -> list[list[PanelEntry]]:

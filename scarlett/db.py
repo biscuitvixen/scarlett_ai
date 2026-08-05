@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS role_panels (
     mode       TEXT    NOT NULL,
     title      TEXT    NOT NULL,
     body       TEXT    NOT NULL DEFAULT '',
+    colour     INTEGER,
     PRIMARY KEY (guild_id, name)
 );
 
@@ -39,7 +40,14 @@ CREATE INDEX IF NOT EXISTS role_panels_by_message
     ON role_panels(message_id);
 """
 
-PANEL_COLUMNS = "guild_id, name, channel_id, message_id, mode, title, body"
+PANEL_COLUMNS = "guild_id, name, channel_id, message_id, mode, title, body, colour"
+
+# columns added after a table first shipped. CREATE TABLE IF NOT EXISTS does
+# nothing to a table that already exists, so a database made before one of
+# these was introduced needs it added on the way in
+ADDED_COLUMNS = [
+    ("role_panels", "colour", "INTEGER"),
+]
 
 
 def _panel(row: aiosqlite.Row, entries: tuple[PanelEntry, ...]) -> Panel:
@@ -51,8 +59,24 @@ def _panel(row: aiosqlite.Row, entries: tuple[PanelEntry, ...]) -> Panel:
         mode=PanelMode(row[4]),
         title=row[5],
         body=row[6],
+        colour=row[7],
         entries=entries,
     )
+
+
+async def _add_missing_columns(conn: aiosqlite.Connection) -> None:
+    """Bring an older database up to the current column set.
+
+    Kept as a list of additions checked against the live table rather than
+    a version counter, because every change so far is a nullable column on
+    a table that is otherwise unchanged. Anything needing rows rewritten
+    or a column dropped wants a real migration ledger instead.
+    """
+    for table, column, decl in ADDED_COLUMNS:
+        async with conn.execute(f"PRAGMA table_info({table})") as cur:
+            present = {row[1] for row in await cur.fetchall()}
+        if column not in present:
+            await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
 
 class Database:
@@ -67,6 +91,7 @@ class Database:
         # cascade silently leaves orphaned rows behind
         await conn.execute("PRAGMA foreign_keys = ON")
         await conn.executescript(SCHEMA)
+        await _add_missing_columns(conn)
         await conn.commit()
         return cls(conn)
 
@@ -136,13 +161,14 @@ class Database:
         """
         await self.conn.execute(
             f"INSERT INTO role_panels ({PANEL_COLUMNS}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(guild_id, name) DO UPDATE SET "
             "channel_id = excluded.channel_id, "
             "message_id = excluded.message_id, "
             "mode = excluded.mode, "
             "title = excluded.title, "
-            "body = excluded.body",
+            "body = excluded.body, "
+            "colour = excluded.colour",
             (
                 panel.guild_id,
                 panel.name,
@@ -151,6 +177,7 @@ class Database:
                 panel.mode.value,
                 panel.title,
                 panel.body,
+                panel.colour,
             ),
         )
         await self.conn.execute(
