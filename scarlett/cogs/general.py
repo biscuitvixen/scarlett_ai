@@ -24,8 +24,9 @@ class General(commands.Cog):
             value=(
                 "`/tz` to set your timezone, then I'll turn times like "
                 '"friday at 7pm" into everyone\'s own local time. '
-                "`/time 21:00` if you'd rather ask me outright, and saying "
-                'the zone yourself ("22:00 CET") works without either.'
+                "`/time 21:00` if you'd rather ask me outright, or "
+                "`/timecode 21:00` to get the markup to paste yourself. "
+                'Saying the zone ("22:00 CET") works without a `/tz`.'
             ),
             inline=False,
         )

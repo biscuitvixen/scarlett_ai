@@ -3,7 +3,14 @@ from datetime import datetime
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
 
-from scarlett.cogs.timestamps import ASKED_MIN_LEAD, Timestamps, _render
+from scarlett.cogs.timestamps import (
+    ASKED_MIN_LEAD,
+    DEFAULT_STYLES,
+    TIMESTAMP_STYLES,
+    Timestamps,
+    _render,
+    _render_codes,
+)
 from scarlett.timeparse import TimeMatch
 
 LONDON = ZoneInfo("Europe/London")
@@ -150,3 +157,41 @@ def test_render_one_line_per_match():
 def test_asked_min_lead_is_off():
     # /time was asked directly, nothing it finds is too soon to convert
     assert ASKED_MIN_LEAD.total_seconds() == 0
+
+
+def test_codes_default_to_the_listener_pair():
+    text = _render_codes([TimeMatch("7pm", WHEN)], DEFAULT_STYLES)
+    assert text.startswith(f"```\n<t:{UNIX}:F> <t:{UNIX}:R>\n```\n"), (
+        f"code block should carry F and R for the match, got: {text!r}"
+    )
+    assert f'"7pm" shows as <t:{UNIX}:F> <t:{UNIX}:R>' in text, (
+        f"preview line missing or wrong, got: {text!r}"
+    )
+
+
+def test_codes_honour_a_single_chosen_style():
+    text = _render_codes([TimeMatch("7pm", WHEN)], ("t",))
+    assert f"```\n<t:{UNIX}:t>\n```" in text, f"only style t should appear: {text!r}"
+    assert ":F>" not in text and ":R>" not in text, (
+        f"default styles leaked into a single-style request: {text!r}"
+    )
+
+
+def test_codes_one_block_line_per_match():
+    later = TimeMatch("9pm", WHEN.replace(hour=21))
+    text = _render_codes([TimeMatch("7pm", WHEN), later], ("F",))
+    block = text.split("```")[1].strip().splitlines()
+    assert len(block) == 2, f"expected one code line per match, got {block!r}"
+
+
+def test_codes_say_when_a_zone_was_borrowed():
+    text = _render_codes([TimeMatch("7pm", WHEN, zone="CET")], ("F",))
+    assert '"7pm" in CET shows as' in text, (
+        f"borrowed zone should be named in the preview: {text!r}"
+    )
+
+
+def test_every_discord_style_is_offered():
+    assert set(TIMESTAMP_STYLES) == set("tTdDfFR"), (
+        "style picker drifted from Discord's seven timestamp styles"
+    )

@@ -42,6 +42,43 @@ def _render(matches: list[TimeMatch]) -> str:
     return "\n".join(lines)
 
 
+# Discord's timestamp styles, https://discord.com/developers/docs/reference
+# #message-formatting-timestamp-styles. The letter is what goes in the
+# markup, the label is how the picker describes it
+TIMESTAMP_STYLES = {
+    "t": "short time, 16:20",
+    "T": "long time, 16:20:30",
+    "d": "short date, 20/04/2021",
+    "D": "long date, 20 April 2021",
+    "f": "short date and time, 20 April 2021 16:20",
+    "F": "long date and time, Tuesday, 20 April 2021 16:20",
+    "R": "relative, 2 months ago",
+}
+
+# what /timecode hands over when no style is asked for: the same pair the
+# listener posts, an absolute time and a countdown to it
+DEFAULT_STYLES = ("F", "R")
+
+
+def _render_codes(matches: list[TimeMatch], styles: tuple[str, ...]) -> str:
+    """The raw markup in a code block, then what each line renders as.
+
+    Inside a fenced block Discord shows <t:...> literally and, on desktop,
+    offers a copy button for the whole block, which is the point. The
+    preview outside it renders normally so the code can be checked before
+    it is pasted anywhere.
+    """
+    codes = []
+    previews = []
+    for m in matches:
+        unix = int(m.when.timestamp())
+        markup = " ".join(f"<t:{unix}:{s}>" for s in styles)
+        codes.append(markup)
+        said = f" in {m.zone}" if m.zone else ""
+        previews.append(f'"{m.phrase}"{said} shows as {markup}')
+    return "```\n" + "\n".join(codes) + "\n```\n" + "\n".join(previews)
+
+
 class Timestamps(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -97,9 +134,7 @@ class Timestamps(commands.Cog):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    async def _prompt_for_timezone(
-        self, message: discord.Message, phrase: str
-    ) -> None:
+    async def _prompt_for_timezone(self, message: discord.Message, phrase: str) -> None:
         now = time.monotonic()
         last = self.last_prompted.get(message.author.id)
         if last is not None and now - last < PROMPT_COOLDOWN:
@@ -123,10 +158,55 @@ class Timestamps(commands.Cog):
         name="time", description="Convert a time for everyone, right now"
     )
     @app_commands.describe(when="A time, e.g. 21:00, 8pm friday, or 22:00 CET")
-    async def convert_time(
-        self, interaction: discord.Interaction, when: str
-    ) -> None:
+    async def convert_time(self, interaction: discord.Interaction, when: str) -> None:
         log.info("/time from %s: %r", interaction.user.id, when)
+        matches = await self._resolve_asked(interaction, when)
+        if matches is None:
+            return
+        await interaction.response.send_message(
+            _render(matches), allowed_mentions=discord.AllowedMentions.none()
+        )
+
+    @app_commands.command(
+        name="timecode",
+        description="Get the timestamp markup for a time, to paste yourself",
+    )
+    @app_commands.describe(
+        when="A time, e.g. 21:00, 8pm friday, or 22:00 CET",
+        style="Which style to render; default is the date and a countdown",
+    )
+    @app_commands.choices(
+        style=[
+            app_commands.Choice(name=f"{letter}: {label}", value=letter)
+            for letter, label in TIMESTAMP_STYLES.items()
+        ]
+    )
+    async def timecode(
+        self,
+        interaction: discord.Interaction,
+        when: str,
+        style: app_commands.Choice[str] | None = None,
+    ) -> None:
+        log.info("/timecode from %s: %r", interaction.user.id, when)
+        matches = await self._resolve_asked(interaction, when)
+        if matches is None:
+            return
+        styles = (style.value,) if style else DEFAULT_STYLES
+        # only the asker sees it, the markup is theirs to paste
+        await interaction.response.send_message(
+            _render_codes(matches, styles),
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
+
+    async def _resolve_asked(
+        self, interaction: discord.Interaction, when: str
+    ) -> list[TimeMatch] | None:
+        """Times in a phrase someone asked about directly.
+
+        Both error paths reply on the interaction themselves and return
+        None, so a caller that gets None has nothing more to say.
+        """
         stated = explicit_zone(when)
         if stated is None:
             tz_name = await self.bot.db.get_timezone(interaction.user.id)
@@ -138,7 +218,7 @@ class Timestamps(commands.Cog):
                     "'22:00 CET' and I'll take it from there.",
                     ephemeral=True,
                 )
-                return
+                return None
             zone = ZoneInfo(tz_name)
         else:
             zone = stated.tz
@@ -157,10 +237,8 @@ class Timestamps(commands.Cog):
                 "8pm friday or 22:00 CET works.",
                 ephemeral=True,
             )
-            return
-        await interaction.response.send_message(
-            _render(matches), allowed_mentions=discord.AllowedMentions.none()
-        )
+            return None
+        return matches
 
     @app_commands.command(
         description="Set your timezone so time phrases convert correctly"
