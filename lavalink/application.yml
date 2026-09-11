@@ -7,8 +7,16 @@ lavalink:
     # Lavalink 4 dropped built-in YouTube, it needs the youtube-source
     # plugin (https://github.com/lavalink-devs/youtube-source). Fetched
     # from Maven on first boot into /opt/Lavalink/plugins.
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
-      repository: "https://maven.lavalink.dev/releases"
+    #
+    # Pinned to a snapshot of main rather than a release: the newest
+    # release (1.18.2) predates YouTube rejecting the TV client's user
+    # agent ("The page needs to be reloaded") and demanding login from
+    # ANDROID_VR, both fixed on main in August 2026 (upstream issues
+    # 226 and 240). Snapshots are keyed by full commit SHA. Move back to
+    # a release tag once one ships with those fixes.
+    - dependency: "dev.lavalink.youtube:youtube-plugin:f45bbb7aebfcbc1c553769e04af6cd43afa8b7c3"
+      repository: "https://maven.lavalink.dev/snapshots"
+      snapshot: true
   server:
     # Overridden by LAVALINK_SERVER_PASSWORD from the compose file
     password: youshallnotpass
